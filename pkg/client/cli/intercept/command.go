@@ -11,6 +11,7 @@ import (
 	"github.com/telepresenceio/telepresence/v2/pkg/client"
 	"github.com/telepresenceio/telepresence/v2/pkg/client/cli/connect"
 	"github.com/telepresenceio/telepresence/v2/pkg/client/cli/daemon"
+	"github.com/telepresenceio/telepresence/v2/pkg/client/cli/env"
 	"github.com/telepresenceio/telepresence/v2/pkg/client/cli/output"
 	"github.com/telepresenceio/telepresence/v2/pkg/dos"
 	"github.com/telepresenceio/telepresence/v2/pkg/errcat"
@@ -28,7 +29,7 @@ type Command struct {
 	Replace bool // whether --replace was passed
 
 	EnvFile   string // --env-file
-	EnvSyntax EnvironmentSyntax
+	EnvSyntax env.Syntax
 	EnvJSON   string   // --env-json
 	Mount     string   // --mount // "true", "false", or desired mount point // only valid if !localOnly
 	MountSet  bool     // whether --mount was passed
@@ -73,7 +74,7 @@ func (a *Command) AddFlags(cmd *cobra.Command) {
 	flagSet.StringVarP(&a.EnvFile, "env-file", "e", "", ``+
 		`Also emit the remote environment to an file. The syntax used in the file can be determined using flag --env-syntax`)
 
-	flagSet.Var(&a.EnvSyntax, "env-syntax", `Syntax used for env-file. One of `+EnvSyntaxUsage())
+	flagSet.Var(&a.EnvSyntax, "env-syntax", `Syntax used for env-file. One of `+env.SyntaxUsage())
 
 	flagSet.StringVarP(&a.EnvJSON, "env-json", "j", "", `Also emit the remote environment to a file as a JSON blob.`)
 

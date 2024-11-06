@@ -1,19 +1,15 @@
 package intercept
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"runtime"
-	"sort"
 	"strconv"
 	"strings"
 
-	"github.com/go-json-experiment/json"
-	"github.com/go-json-experiment/json/jsontext"
 	grpcCodes "google.golang.org/grpc/codes"
 	grpcStatus "google.golang.org/grpc/status"
 	empty "google.golang.org/protobuf/types/known/emptypb"
@@ -26,6 +22,7 @@ import (
 	"github.com/telepresenceio/telepresence/v2/pkg/agentconfig"
 	"github.com/telepresenceio/telepresence/v2/pkg/client"
 	"github.com/telepresenceio/telepresence/v2/pkg/client/cli/daemon"
+	"github.com/telepresenceio/telepresence/v2/pkg/client/cli/env"
 	"github.com/telepresenceio/telepresence/v2/pkg/client/cli/output"
 	"github.com/telepresenceio/telepresence/v2/pkg/client/cli/spinner"
 	"github.com/telepresenceio/telepresence/v2/pkg/client/docker"
@@ -255,7 +252,7 @@ func (s *state) create(ctx context.Context) (acquired bool, err error) {
 	}
 	detailedOutput := s.DetailedOutput && s.FormattedOutput
 	if !s.Silent && !detailedOutput {
-		fmt.Fprintf(dos.Stdout(ctx), "Using %s %s\n", r.WorkloadKind, s.AgentName)
+		ioutil.Printf(dos.Stdout(ctx), "Using %s %s\n", r.WorkloadKind, s.AgentName)
 	}
 	var intercept *manager.InterceptInfo
 
@@ -282,7 +279,9 @@ func (s *state) create(ctx context.Context) (acquired bool, err error) {
 		}
 	}
 	if s.EnvJSON != "" {
-		if err = s.writeEnvJSON(); err != nil {
+		s.EnvFile = s.EnvJSON
+		s.EnvSyntax = env.SyntaxJSON
+		if err = s.writeEnvFile(); err != nil {
 			return true, err
 		}
 	}
@@ -357,7 +356,7 @@ func (s *state) runCommand(ctx context.Context) error {
 		}
 		defer os.Remove(file.Name())
 
-		if err = s.writeEnvToFileAndClose(file); err != nil {
+		if err = s.EnvSyntax.WriteToFileAndClose(file, s.env); err != nil {
 			return err
 		}
 		envFile = file.Name()
@@ -444,40 +443,7 @@ func (s *state) writeEnvFile() error {
 	if err != nil {
 		return errcat.NoDaemonLogs.Newf("failed to create environment file %q: %w", s.EnvFile, err)
 	}
-	return s.writeEnvToFileAndClose(file)
-}
-
-func (s *state) writeEnvToFileAndClose(file *os.File) (err error) {
-	defer file.Close()
-	w := bufio.NewWriter(file)
-
-	keys := make([]string, len(s.env))
-	i := 0
-	for k := range s.env {
-		keys[i] = k
-		i++
-	}
-	sort.Strings(keys)
-
-	for _, k := range keys {
-		r, err := s.EnvSyntax.WriteEnv(k, s.env[k])
-		if err != nil {
-			return err
-		}
-		if _, err = fmt.Fprintln(w, r); err != nil {
-			return err
-		}
-	}
-	return w.Flush()
-}
-
-func (s *state) writeEnvJSON() error {
-	data, err := json.Marshal(s.env, jsontext.WithIndent("  "))
-	if err != nil {
-		// Creating JSON from a map[string]string should never fail
-		panic(err)
-	}
-	return os.WriteFile(s.EnvJSON, data, 0o644)
+	return s.EnvSyntax.WriteToFileAndClose(file, s.env)
 }
 
 // parsePort parses portSpec based on how it's formatted.
