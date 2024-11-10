@@ -7,9 +7,10 @@ import (
 	"time"
 
 	"github.com/telepresenceio/telepresence/rpc/v2/connector"
+	"github.com/telepresenceio/telepresence/rpc/v2/daemon"
 )
 
-func (s *notConnectedSuite) Test_Ingest() {
+func (s *notConnectedSuite) Test_IngestProxyVia() {
 	ctx := s.Context()
 	s.TelepresenceHelmInstallOK(ctx, true, "--set", "intercept.environment.excluded={DATABASE_HOST,DATABASE_PASSWORD}")
 	defer s.RollbackTM(ctx)
@@ -17,16 +18,33 @@ func (s *notConnectedSuite) Test_Ingest() {
 	s.ApplyApp(ctx, "echo_with_env", "deploy/echo-easy")
 	defer s.DeleteSvcAndWorkload(ctx, "deploy", "echo-easy")
 
+	cr := s.newConnectRequest()
+
+	// Simulate --proxy-via all=echo-easy
+	cr.SubnetViaWorkloads = []*daemon.SubnetViaWorkload{
+		{
+			Subnet:   "also",
+			Workload: "echo-easy",
+		},
+		{
+			Subnet:   "service",
+			Workload: "echo-easy",
+		},
+		{
+			Subnet:   "pods",
+			Workload: "echo-easy",
+		},
+	}
 	mountPoint := filepath.Join(s.T().TempDir(), "mnt")
-	s.Require().NoError(os.Mkdir(mountPoint, 0o755))
-	s.Require().NoError(s.withConnectedService(func(ctx context.Context, svc connector.ConnectorServer) {
+	rq := s.Require()
+	rq.NoError(os.Mkdir(mountPoint, 0o755))
+	rq.NoError(s.withConnectedService(cr, func(ctx context.Context, svc connector.ConnectorServer) {
 		rsp, err := svc.Ingest(ctx, &connector.IngestRequest{
 			MountPoint: mountPoint,
 			Identifier: &connector.IngestIdentifier{
 				WorkloadName: "echo-easy",
 			},
 		})
-		rq := s.Require()
 		rq.NoError(err)
 		env := rsp.Environment
 		s.Empty(env["DATABASE_HOST"])
@@ -39,5 +57,10 @@ func (s *notConnectedSuite) Test_Ingest() {
 			st, err := os.Stat(testDir)
 			return err == nil && st.Mode().IsDir()
 		}, 15*time.Second, 3*time.Second)
+
+		_, err = svc.LeaveIngest(ctx, &connector.IngestIdentifier{
+			WorkloadName: "echo-easy",
+		})
+		rq.NoError(err)
 	}))
 }

@@ -354,18 +354,20 @@ func nope() bool { return false }
 func newSession(c context.Context, mi *rpc.NetworkConfig, mc connector.ManagerProxyClient, ver semver.Version, isPodDaemon bool) (context.Context, *Session, error) {
 	dlog.Debugf(c, "Creating session with id %v", mi.Session)
 	s := &Session{
-		handlers:           tunnel.NewPool(),
-		rndSource:          rand.NewSource(time.Now().UnixNano()),
-		session:            mi.Session,
-		namespace:          mi.Namespace,
-		managerClient:      mc,
-		managerVersion:     ver,
-		subnetViaWorkloads: mi.SubnetViaWorkloads,
-		proxyClusterPods:   true,
-		proxyClusterSvcs:   true,
-		vifReady:           make(chan error, 2),
-		done:               make(chan struct{}),
-		podDaemon:          isPodDaemon,
+		handlers:              tunnel.NewPool(),
+		rndSource:             rand.NewSource(time.Now().UnixNano()),
+		session:               mi.Session,
+		namespace:             mi.Namespace,
+		managerClient:         mc,
+		managerVersion:        ver,
+		subnetViaWorkloads:    mi.SubnetViaWorkloads,
+		proxyClusterPods:      true,
+		proxyClusterSvcs:      true,
+		vifReady:              make(chan error, 2),
+		done:                  make(chan struct{}),
+		podDaemon:             isPodDaemon,
+		localTranslationTable: xsync.NewMapOf[netip.Addr, netip.Addr](),
+		virtualIPs:            xsync.NewMapOf[netip.Addr, agentVIP](),
 	}
 	cfg := client.GetConfig(c)
 	rt := cfg.Routing()
@@ -1136,8 +1138,6 @@ func (s *Session) activateProxyViaWorkloads(ctx context.Context) error {
 	dlog.Debugf(ctx, "ProxyVIA using subnet %s", vipSubnet)
 
 	s.vipGenerator = vip.NewGenerator(vipSubnet)
-	s.localTranslationTable = xsync.NewMapOf[netip.Addr, netip.Addr]()
-	s.virtualIPs = xsync.NewMapOf[netip.Addr, agentVIP]()
 	s.localTranslationSubnets = make([]agentSubnet, sl)
 	for _, wlName := range s.consolidateProxyViaWorkloads(ctx) {
 		dlog.Debugf(ctx, "Ensuring proxy-via agent in %s", wlName)

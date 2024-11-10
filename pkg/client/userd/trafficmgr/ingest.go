@@ -2,9 +2,7 @@ package trafficmgr
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -15,11 +13,20 @@ import (
 	"github.com/telepresenceio/telepresence/rpc/v2/manager"
 )
 
+type ingestKey struct {
+	workload  string
+	container string
+}
+
+func (ik ingestKey) String() string {
+	return fmt.Sprintf("%s[%s]", ik.workload, ik.container)
+}
+
 type ingest struct {
 	*manager.AgentInfo
+	ingestKey
 	ctx             context.Context
 	cancel          context.CancelFunc
-	containerName   string
 	mountPoint      string
 	localMountPoint string
 	localMountPort  int32
@@ -27,16 +34,18 @@ type ingest struct {
 }
 
 func (ig *ingest) podAccess(rd daemon.DaemonClient) *podAccess {
-	ni := ig.Containers[ig.containerName]
+	ni := ig.Containers[ig.container]
 	pa := &podAccess{
 		ctx:              ig.ctx,
 		localPorts:       ig.localPorts,
-		container:        ig.containerName,
+		workload:         ig.workload,
+		container:        ig.container,
 		podIP:            ig.PodIp,
 		sftpPort:         ig.SftpPort,
 		ftpPort:          ig.FtpPort,
 		mountPoint:       ni.MountPoint,
 		clientMountPoint: ig.localMountPoint,
+		localMountPort:   ig.localMountPort,
 	}
 	if err := pa.ensureAccess(ig.ctx, rd); err != nil {
 		dlog.Error(ig.ctx, err)
@@ -45,7 +54,7 @@ func (ig *ingest) podAccess(rd daemon.DaemonClient) *podAccess {
 }
 
 func (ig *ingest) response() *rpc.IngestResponse {
-	cn := ig.Containers[ig.containerName]
+	cn := ig.Containers[ig.container]
 	return &rpc.IngestResponse{
 		PodIp:            ig.PodIp,
 		SftpPort:         ig.SftpPort,
@@ -104,13 +113,15 @@ func (s *session) Ingest(ctx context.Context, rq *rpc.IngestRequest) (ir *rpc.In
 		ctx, cancel := context.WithCancel(ctx)
 		cancelIngest := func() {
 			s.currentIngests.Delete(ik)
+			dlog.Debugf(ctx, "Cancelling ingest %s", ik)
 			cancel()
+			s.ingestTracker.cancelContainer(ik.workload, ik.container)
 		}
 		ig = &ingest{
+			ingestKey:       ik,
 			AgentInfo:       ai,
 			ctx:             ctx,
 			cancel:          cancelIngest,
-			containerName:   id.ContainerName,
 			mountPoint:      ci.MountPoint,
 			localMountPoint: rq.MountPoint,
 			localMountPort:  rq.LocalMountPort,
@@ -122,25 +133,11 @@ func (s *session) Ingest(ctx context.Context, rq *rpc.IngestRequest) (ir *rpc.In
 		return nil, err
 	}
 
-	if s.ingestLoopRunning.CompareAndSwap(false, true) {
-		s.ingestTracker = newPodAccessTracker()
-		go func() {
-			if err := s.watchAgentsLoop(ctx); err != nil {
-				dlog.Errorf(ctx, "failed to watch agents: %v", err)
-				s.ingestLoopRunning.Store(false)
-			}
-		}()
-	}
-	s.ingestTracker.initialStart(ctx, ig.podAccess(s.rootDaemon))
+	s.ingestTracker.initialStart(ig.podAccess(s.rootDaemon))
 	return ig.response(), nil
 }
 
 func (s *session) LeaveIngest(rq *rpc.IngestIdentifier) (err error) {
-	ik := ingestKey{
-		workload:  rq.WorkloadName,
-		container: rq.ContainerName,
-	}
-
 	if rq.ContainerName == "" {
 		// Valid if there's only one ingest for the given workload.
 		s.currentIngests.Range(func(key ingestKey, value *ingest) bool {
@@ -156,47 +153,17 @@ func (s *session) LeaveIngest(rq *rpc.IngestIdentifier) (err error) {
 		if err != nil {
 			return err
 		}
+		if rq.ContainerName == "" {
+			return status.Error(codes.NotFound, fmt.Sprintf("no ingest found for workload %s", rq.WorkloadName))
+		}
+	}
+	ik := ingestKey{
+		workload:  rq.WorkloadName,
+		container: rq.ContainerName,
 	}
 	if ig, ok := s.currentIngests.Load(ik); ok {
 		ig.cancel()
 		return nil
 	}
-	return status.Error(codes.NotFound, fmt.Sprintf("ingest %s[%s] doesn't exist", rq.WorkloadName, rq.ContainerName))
-}
-
-func (s *session) watchAgentsLoop(ctx context.Context) error {
-	stream, err := s.managerClient.WatchAgents(ctx, s.SessionInfo())
-	if err != nil {
-		return fmt.Errorf("manager.WatchAgents: %w", err)
-	}
-	for ctx.Err() == nil {
-		snapshot, err := stream.Recv()
-		if err != nil {
-			// Handle as if we had an empty snapshot. This will ensure that port forwards and volume mounts are canceled correctly.
-			s.handleIngestSnapshot(ctx, nil)
-			if ctx.Err() != nil || errors.Is(err, io.EOF) {
-				// Normal termination
-				return nil
-			}
-			return fmt.Errorf("manager.WatchAgents recv: %w", err)
-		}
-		s.handleIngestSnapshot(ctx, snapshot.Agents)
-	}
-	return nil
-}
-
-func (s *session) handleIngestSnapshot(ctx context.Context, infos []*manager.AgentInfo) {
-	s.ingestTracker.initSnapshot()
-	for _, info := range infos {
-		for cn := range info.Containers {
-			ik := ingestKey{
-				workload:  info.Name,
-				container: cn,
-			}
-			if ig, ok := s.currentIngests.Load(ik); ok {
-				s.ingestTracker.start(ctx, ig.podAccess(s.rootDaemon))
-			}
-		}
-	}
-	s.ingestTracker.cancelUnwanted(ctx)
+	return status.Error(codes.NotFound, fmt.Sprintf("ingest %s doesn't exist", ik))
 }

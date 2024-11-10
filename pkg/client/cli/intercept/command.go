@@ -1,6 +1,7 @@
 package intercept
 
 import (
+	"errors"
 	"strconv"
 	"strings"
 
@@ -11,36 +12,30 @@ import (
 	"github.com/telepresenceio/telepresence/v2/pkg/client"
 	"github.com/telepresenceio/telepresence/v2/pkg/client/cli/connect"
 	"github.com/telepresenceio/telepresence/v2/pkg/client/cli/daemon"
+	"github.com/telepresenceio/telepresence/v2/pkg/client/cli/docker"
 	"github.com/telepresenceio/telepresence/v2/pkg/client/cli/env"
+	"github.com/telepresenceio/telepresence/v2/pkg/client/cli/mount"
 	"github.com/telepresenceio/telepresence/v2/pkg/client/cli/output"
 	"github.com/telepresenceio/telepresence/v2/pkg/dos"
 	"github.com/telepresenceio/telepresence/v2/pkg/errcat"
 )
 
 type Command struct {
-	Name           string // Command[0] || `${Command[0]}-${--namespace}` // which depends on a combinationof --workload and --namespace
-	AgentName      string // --workload || Command[0] // only valid if !localOnly
-	Port           string // --port
-	ServiceName    string // --service
-	ContainerName  string // --container
-	Address        string // --address
-	LocalMountPort uint16 // --local-mount-port
+	EnvFlags      env.Flags
+	DockerFlags   docker.Flags
+	MountFlags    mount.Flags
+	Name          string // Command[0] || `${Command[0]}-${--namespace}` // which depends on a combinationof --workload and --namespace
+	AgentName     string // --workload || Command[0] // only valid if !localOnly
+	Port          string // --port
+	ServiceName   string // --service
+	ContainerName string // --container
+	Address       string // --address
 
 	Replace bool // whether --replace was passed
 
-	EnvFile   string // --env-file
-	EnvSyntax env.Syntax
-	EnvJSON   string   // --env-json
-	Mount     string   // --mount // "true", "false", or desired mount point // only valid if !localOnly
-	MountSet  bool     // whether --mount was passed
-	ToPod     []string // --to-pod
+	ToPod []string // --to-pod
 
-	DockerRun          bool     // --docker-run
-	DockerBuild        string   // --docker-build DIR | URL
-	DockerBuildOptions []string // --docker-build-opt key=value, // Optional flag to docker build can be repeated (but not comma separated)
-	DockerDebug        string   // --docker-debug DIR | URL
-	DockerMount        string   // --docker-mount // where to mount in a docker container. Defaults to mount unless mount is "true" or "false".
-	Cmdline            []string // Command[1:]
+	Cmdline []string // Command[1:]
 
 	Mechanism       string // --mechanism tcp
 	MechanismArgs   []string
@@ -71,38 +66,14 @@ func (a *Command) AddFlags(cmd *cobra.Command) {
 	flagSet.StringVar(&a.ContainerName, "container", "",
 		"Name of container that provides the environment and mounts for the intercept. Defaults to the container matching the targetPort")
 
-	flagSet.StringVarP(&a.EnvFile, "env-file", "e", "", ``+
-		`Also emit the remote environment to an file. The syntax used in the file can be determined using flag --env-syntax`)
-
-	flagSet.Var(&a.EnvSyntax, "env-syntax", `Syntax used for env-file. One of `+env.SyntaxUsage())
-
-	flagSet.StringVarP(&a.EnvJSON, "env-json", "j", "", `Also emit the remote environment to a file as a JSON blob.`)
-
-	flagSet.StringVar(&a.Mount, "mount", "true", ``+
-		`The absolute path for the root directory where volumes will be mounted, $TELEPRESENCE_ROOT. Use "true" to `+
-		`have Telepresence pick a random mount point (default). Use "false" to disable filesystem mounting entirely.`)
-
 	flagSet.StringSliceVar(&a.ToPod, "to-pod", []string{}, ``+
 		`An additional port to forward from the intercepted pod, will be made available at localhost:PORT `+
 		`Use this to, for example, access proxy/helper sidecars in the intercepted pod. The default protocol is TCP. `+
 		`Use <port>/UDP for UDP ports`)
 
-	flagSet.BoolVar(&a.DockerRun, "docker-run", false, ``+
-		`Run a Docker container with intercepted environment, volume mount, by passing arguments after -- to 'docker run', `+
-		`e.g. '--docker-run -- -it --rm ubuntu:20.04 /bin/bash'`)
-
-	flagSet.StringVar(&a.DockerBuild, "docker-build", "", ``+
-		`Build a Docker container from the given docker-context (path or URL), and run it with intercepted environment and volume mounts, `+
-		`by passing arguments after -- to 'docker run', e.g. '--docker-build /path/to/docker/context -- -it IMAGE /bin/bash'`)
-
-	flagSet.StringVar(&a.DockerDebug, "docker-debug", "", ``+
-		`Like --docker-build, but allows a debugger to run inside the container with relaxed security`)
-
-	flagSet.StringArrayVar(&a.DockerBuildOptions, "docker-build-opt", nil,
-		`Option to docker-build in the form key=value, e.g. --docker-build-opt tag=mytag. Can be repeated`)
-
-	flagSet.StringVar(&a.DockerMount, "docker-mount", "", ``+
-		`The volume mount point in docker. Defaults to same as "--mount"`)
+	a.EnvFlags.AddFlags(flagSet)
+	a.MountFlags.AddFlags(flagSet)
+	a.DockerFlags.AddFlags(flagSet)
 
 	flagSet.StringP("namespace", "n", "", "If present, the namespace scope for this CLI request")
 
@@ -112,9 +83,6 @@ func (a *Command) AddFlags(cmd *cobra.Command) {
 
 	flagSet.BoolVar(&a.DetailedOutput, "detailed-output", false,
 		`Provide very detailed info about the intercept when used together with --output=json or --output=yaml'`)
-
-	flagSet.Uint16Var(&a.LocalMountPort, "local-mount-port", 0,
-		`Do not mount remote directories. Instead, expose this port on localhost to an external mounter`)
 
 	flagSet.BoolVarP(&a.Replace, "replace", "", false,
 		`Indicates if the traffic-agent should replace application containers in workload pods. `+
@@ -129,10 +97,6 @@ func (a *Command) Validate(cmd *cobra.Command, positional []string) error {
 	a.Cmdline = positional[1:]
 	a.FormattedOutput = output.WantsFormatted(cmd)
 
-	if a.LocalMountPort > 0 && client.GetConfig(cmd.Context()).Intercept().UseFtp {
-		return errcat.User.New("only SFTP can be used with --local-mount-port. Client is configured to perform remote mounts using FTP")
-	}
-
 	// Actually intercepting something
 	if a.AgentName == "" {
 		a.AgentName = a.Name
@@ -140,27 +104,13 @@ func (a *Command) Validate(cmd *cobra.Command, positional []string) error {
 	if a.Port == "" {
 		a.Port = strconv.Itoa(client.GetConfig(cmd.Context()).Intercept().DefaultPort)
 	}
-	a.MountSet = cmd.Flag("mount").Changed
-	drCount := 0
-	if a.DockerRun {
-		drCount++
+	if err := a.MountFlags.Validate(cmd); err != nil {
+		return err
 	}
-	if a.DockerBuild != "" {
-		drCount++
+	if a.DockerFlags.Mount != "" && !a.MountFlags.Enabled {
+		return errors.New("--docker-mount cannot be used with --mount=false")
 	}
-	if a.DockerDebug != "" {
-		drCount++
-	}
-	if drCount > 1 {
-		return errcat.User.New("only one of --docker-run, --docker-build, or --docker-debug can be used")
-	}
-	a.DockerRun = drCount == 1
-	if a.DockerRun {
-		if err := a.ValidateDockerArgs(); err != nil {
-			return err
-		}
-	}
-	return nil
+	return a.DockerFlags.Validate(a.Cmdline)
 }
 
 func (a *Command) Run(cmd *cobra.Command, positional []string) error {
@@ -171,17 +121,10 @@ func (a *Command) Run(cmd *cobra.Command, positional []string) error {
 		return err
 	}
 	ctx := dos.WithStdio(cmd.Context(), cmd)
-	_, err := NewState(a).Run(ctx)
+	err := a.MountFlags.ValidateConnected(ctx)
+	dlog.Debugf(cmd.Context(), "Mountflags = %v", &a.MountFlags)
+	_, err = NewState(a, err).Run(ctx)
 	return err
-}
-
-func (a *Command) ValidateDockerArgs() error {
-	for _, arg := range a.Cmdline {
-		if arg == "-d" || arg == "--detach" {
-			return errcat.User.New("running docker container in background using -d or --detach is not supported")
-		}
-	}
-	return nil
 }
 
 func (a *Command) ValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
@@ -222,22 +165,4 @@ func (a *Command) ValidArgs(cmd *cobra.Command, args []string, toComplete string
 	// There probably exists a number that would be a good cutoff limit.
 
 	return list, cobra.ShellCompDirectiveNoFileComp | cobra.ShellCompDirectiveNoSpace
-}
-
-// GetMountPoint returns a boolean indicating if mounts are enabled or not, and path
-// indicating a mount point.
-func (a *Command) GetMountPoint() (bool, string) {
-	if !a.MountSet {
-		// Default is that mount is enabled and the path is unspecified
-		return true, ""
-	}
-	if doMount, err := strconv.ParseBool(a.Mount); err == nil {
-		// Boolean flag, path unspecified
-		return doMount, ""
-	}
-	if len(a.Mount) == 0 {
-		// Let explicit --mount= have the same meaning as --mount=false
-		return false, ""
-	}
-	return true, a.Mount
 }

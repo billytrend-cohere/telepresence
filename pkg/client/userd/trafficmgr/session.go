@@ -13,11 +13,9 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/blang/semver/v4"
-	"github.com/go-json-experiment/json"
 	"github.com/google/uuid"
 	"github.com/puzpuzpuz/xsync/v3"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
@@ -86,11 +84,6 @@ type workloadInfo struct {
 	interceptClients []string
 }
 
-type ingestKey struct {
-	workload  string
-	container string
-}
-
 type session struct {
 	*k8s.Cluster
 	rootDaemon         rootdRpc.DaemonClient
@@ -127,14 +120,15 @@ type session struct {
 	// currentIngests is tracks the ingests that are active in this session.
 	currentIngests *xsync.MapOf[ingestKey, *ingest]
 
-	ingestLoopRunning atomic.Bool
-
 	ingestTracker *podAccessTracker
 
-	// currentInterceptsLock ensures that all accesses to currentIntercepts, currentMatchers,
+	// currentInterceptsLock ensures that all accesses to currentAgents, currentIntercepts, currentMatchers,
 	// currentAPIServers, interceptWaiters, and ingressInfo are synchronized
 	//
 	currentInterceptsLock sync.Mutex
+
+	// currentAgents is the latest snapshot returned by the agents watcher.
+	currentAgents []*manager.AgentInfo
 
 	// currentIntercepts is the latest snapshot returned by the intercept watcher. It
 	// is keyeed by the intercept ID
@@ -459,6 +453,7 @@ func connectMgr(
 		managerVersion:     managerVersion,
 		sessionInfo:        si,
 		currentIngests:     xsync.NewMapOf[ingestKey, *ingest](),
+		ingestTracker:      newPodAccessTracker(),
 		workloads:          make(map[string]map[workloadInfoKey]workloadInfo),
 		interceptWaiters:   make(map[string]*awaitIntercept),
 		isPodDaemon:        cr.IsPodDaemon,
@@ -548,6 +543,7 @@ func (s *session) Epilog(ctx context.Context) {
 
 func (s *session) StartServices(g *dgroup.Group) {
 	g.Go("remain", s.remainLoop)
+	g.Go("agents", s.watchAgentsLoop)
 	g.Go("intercept-port-forward", s.watchInterceptsHandler)
 	g.Go("dial-request-watcher", s.dialRequestWatcher)
 }
@@ -593,7 +589,7 @@ func (s *session) ApplyConfig(ctx context.Context) error {
 func (s *session) getInfosForWorkloads(
 	namespaces []string,
 	iMap map[string][]*manager.InterceptInfo,
-	sMap map[string]*rpc.WorkloadInfo_Sidecar,
+	sMap map[string]string,
 	filter rpc.ListRequest_Filter,
 ) []*rpc.WorkloadInfo {
 	wiMap := make(map[string]*rpc.WorkloadInfo)
@@ -613,7 +609,30 @@ func (s *session) getInfosForWorkloads(
 		if wlInfo.InterceptInfos, ok = iMap[name]; !ok && filter <= rpc.ListRequest_INTERCEPTS {
 			return
 		}
-		if wlInfo.Sidecar, ok = sMap[name]; !ok && filter <= rpc.ListRequest_INSTALLED_AGENTS {
+		if filter == rpc.ListRequest_INGESTS {
+			igCount := 0
+			s.currentIngests.Range(func(key ingestKey, value *ingest) bool {
+				if key.workload == name {
+					igCount++
+					wlInfo.InterceptInfos = append(wlInfo.InterceptInfos, &manager.InterceptInfo{
+						Id:               key.container,
+						PodName:          value.PodName,
+						ApiPort:          value.ApiPort,
+						PodIp:            value.PodIp,
+						SftpPort:         value.SftpPort,
+						FtpPort:          value.FtpPort,
+						ClientMountPoint: value.localMountPoint,
+						MountPoint:       value.mountPoint,
+						Environment:      value.Containers[value.container].Environment,
+					})
+				}
+				return true
+			})
+			if igCount == 0 {
+				return
+			}
+		}
+		if wlInfo.AgentVersion, ok = sMap[name]; !ok && filter <= rpc.ListRequest_INSTALLED_AGENTS {
 			return
 		}
 		wiMap[fmt.Sprintf("%s:%s.%s", kind, name, namespace)] = wlInfo
@@ -711,7 +730,8 @@ func (s *session) WorkloadInfoSnapshot(
 	is := s.getCurrentIntercepts()
 
 	var nss []string
-	if filter == rpc.ListRequest_INTERCEPTS {
+	var sMap map[string]string
+	if filter == rpc.ListRequest_INTERCEPTS || filter == rpc.ListRequest_INGESTS || filter == rpc.ListRequest_INSTALLED_AGENTS {
 		// Special case, we don't care about namespaces in general. Instead, we use the connected namespace
 		nss = []string{s.Namespace}
 	} else {
@@ -728,8 +748,14 @@ func (s *session) WorkloadInfoSnapshot(
 		dlog.Debug(ctx, "No namespaces are mapped")
 		return &rpc.WorkloadInfoSnapshot{}, nil
 	}
+	if len(nss) == 1 && nss[0] == s.Namespace {
+		cas := s.getCurrentAgents()
+		sMap = make(map[string]string, len(cas))
+		for _, a := range cas {
+			sMap[a.Name] = a.Version
+		}
+	}
 	s.ensureWatchers(ctx, nss)
-
 	iMap := make(map[string][]*manager.InterceptInfo, len(is))
 nextIs:
 	for _, i := range is {
@@ -740,18 +766,6 @@ nextIs:
 			}
 		}
 	}
-
-	sMap := make(map[string]*rpc.WorkloadInfo_Sidecar)
-	for _, ns := range nss {
-		for k, v := range s.getCurrentSidecarsInNamespace(ctx, ns) {
-			data, err := json.Marshal(v)
-			if err != nil {
-				continue
-			}
-			sMap[k] = &rpc.WorkloadInfo_Sidecar{Json: data}
-		}
-	}
-
 	workloadInfos := s.getInfosForWorkloads(nss, iMap, sMap, filter)
 	return &rpc.WorkloadInfoSnapshot{Workloads: workloadInfos}, nil
 }

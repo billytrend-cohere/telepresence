@@ -60,7 +60,7 @@ func (pa *podAccess) startMount(ctx context.Context, iceptWG, podWG *sync.WaitGr
 		}
 		pa.Mounter = m
 	}
-	err := m.Start(mountCtx, pa.container, pa.clientMountPoint, pa.mountPoint, iputil.Parse(pa.podIP), uint16(port))
+	err := m.Start(mountCtx, pa.workload, pa.container, pa.clientMountPoint, pa.mountPoint, iputil.Parse(pa.podIP), uint16(port))
 	if err != nil && ctx.Err() == nil {
 		dlog.Error(ctx, err)
 	}

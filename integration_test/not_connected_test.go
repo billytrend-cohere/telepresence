@@ -20,7 +20,6 @@ import (
 	"github.com/datawire/dlib/dlog"
 	"github.com/datawire/k8sapi/pkg/k8sapi"
 	rpc "github.com/telepresenceio/telepresence/rpc/v2/connector"
-	"github.com/telepresenceio/telepresence/rpc/v2/daemon"
 	"github.com/telepresenceio/telepresence/rpc/v2/manager"
 	"github.com/telepresenceio/telepresence/v2/integration_test/itest"
 	"github.com/telepresenceio/telepresence/v2/pkg/client"
@@ -223,14 +222,32 @@ func (s *notConnectedSuite) doConnected(f func(context.Context, context.CancelFu
 }
 
 func (s *notConnectedSuite) Test_DirectConnect() {
-	s.Require().NoError(s.withConnectedService(func(ctx context.Context, server rpc.ConnectorServer) {
+	cr := s.newConnectRequest()
+	s.Require().NoError(s.withConnectedService(cr, func(ctx context.Context, server rpc.ConnectorServer) {
 		v, err := server.Version(ctx, nil)
 		s.Require().NoError(err)
 		dlog.Info(ctx, v.Name, v.Version)
 	}))
 }
 
-func (s *notConnectedSuite) withConnectedService(f func(context.Context, rpc.ConnectorServer)) error {
+func (s *notConnectedSuite) newConnectRequest() *rpc.ConnectRequest {
+	ctx := s.Context()
+	flags := map[string]string{
+		"kubeconfig": itest.KubeConfig(ctx),
+		"namespace":  s.AppNamespace(),
+	}
+	if user := itest.GetUser(ctx); user != "default" {
+		flags["as"] = "system:serviceaccount:" + user
+	}
+	return &rpc.ConnectRequest{
+		KubeFlags:        flags,
+		MappedNamespaces: []string{s.AppNamespace()},
+		ManagerNamespace: s.ManagerNamespace(),
+		Environment:      s.GlobalEnv(ctx),
+	}
+}
+
+func (s *notConnectedSuite) withConnectedService(cr *rpc.ConnectRequest, f func(context.Context, rpc.ConnectorServer)) error {
 	client.ProcessName = func() string {
 		return userd.ProcessName
 	}
@@ -264,34 +281,9 @@ func (s *notConnectedSuite) withConnectedService(f func(context.Context, rpc.Con
 
 	var sv rpc.ConnectorServer
 	srv.As(&sv)
+
 	var rsp *rpc.ConnectInfo
-	flags := map[string]string{
-		"kubeconfig": itest.KubeConfig(ctx),
-		"namespace":  s.AppNamespace(),
-	}
-	if user := itest.GetUser(ctx); user != "default" {
-		flags["as"] = "system:serviceaccount:" + user
-	}
-	rsp, err = sv.Connect(ctx, &rpc.ConnectRequest{
-		KubeFlags:        flags,
-		MappedNamespaces: []string{s.AppNamespace()},
-		ManagerNamespace: s.ManagerNamespace(),
-		Environment:      s.GlobalEnv(ctx),
-		SubnetViaWorkloads: []*daemon.SubnetViaWorkload{
-			{
-				Subnet:   "also",
-				Workload: "echo-easy",
-			},
-			{
-				Subnet:   "service",
-				Workload: "echo-easy",
-			},
-			{
-				Subnet:   "pods",
-				Workload: "echo-easy",
-			},
-		},
-	})
+	rsp, err = sv.Connect(ctx, cr)
 	if err != nil {
 		return err
 	}

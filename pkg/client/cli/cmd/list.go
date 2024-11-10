@@ -2,16 +2,13 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 	"io"
 
-	"github.com/go-json-experiment/json"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 
 	"github.com/datawire/dlib/dlog"
 	"github.com/telepresenceio/telepresence/rpc/v2/connector"
-	"github.com/telepresenceio/telepresence/v2/pkg/agentconfig"
 	"github.com/telepresenceio/telepresence/v2/pkg/client"
 	"github.com/telepresenceio/telepresence/v2/pkg/client/cli/ann"
 	"github.com/telepresenceio/telepresence/v2/pkg/client/cli/connect"
@@ -19,20 +16,17 @@ import (
 	"github.com/telepresenceio/telepresence/v2/pkg/client/cli/intercept"
 	"github.com/telepresenceio/telepresence/v2/pkg/client/cli/output"
 	"github.com/telepresenceio/telepresence/v2/pkg/errcat"
+	"github.com/telepresenceio/telepresence/v2/pkg/ioutil"
 )
 
 type listCommand struct {
 	onlyIntercepts    bool
+	onlyIngests       bool
 	onlyAgents        bool
 	onlyInterceptable bool
 	debug             bool
 	namespace         string
 	watch             bool
-}
-
-type workloadJSONOutput struct {
-	*connector.WorkloadInfo
-	Sidecar *agentconfig.Sidecar `json:"sidecar,omitempty"`
 }
 
 func list() *cobra.Command {
@@ -49,6 +43,7 @@ func list() *cobra.Command {
 	}
 	flags := cmd.Flags()
 	flags.BoolVarP(&s.onlyIntercepts, "intercepts", "i", false, "intercepts only")
+	flags.BoolVarP(&s.onlyIngests, "ingests", "g", false, "ingests only")
 	flags.BoolVarP(&s.onlyAgents, "agents", "a", false, "with installed agents only")
 	flags.BoolVarP(&s.onlyInterceptable, "only-interceptable", "o", true, "interceptable workloads only")
 	flags.BoolVar(&s.debug, "debug", false, "include debugging information")
@@ -98,6 +93,8 @@ func (s *listCommand) list(cmd *cobra.Command, _ []string) error {
 	switch {
 	case s.onlyIntercepts:
 		filter = connector.ListRequest_INTERCEPTS
+	case s.onlyIngests:
+		filter = connector.ListRequest_INGESTS
 	case s.onlyAgents:
 		filter = connector.ListRequest_INSTALLED_AGENTS
 	case s.onlyInterceptable:
@@ -165,20 +162,19 @@ func (s *listCommand) printList(ctx context.Context, workloads []*connector.Work
 		if formattedOut {
 			output.Object(ctx, []struct{}{}, false)
 		} else {
-			fmt.Fprintln(stdout, "No Workloads (Deployments, StatefulSets, ReplicaSets, or Rollouts)")
+			ioutil.Println(stdout, "No Workloads (Deployments, StatefulSets, ReplicaSets, or Rollouts)")
 		}
 		return
 	}
 
 	state := func(workload *connector.WorkloadInfo) string {
 		if iis := workload.InterceptInfos; len(iis) > 0 {
-			return intercept.DescribeIntercepts(ctx, iis, "", s.debug)
+			return intercept.DescribeIntercepts(ctx, iis, nil, s.debug)
 		}
-		ai := workload.Sidecar
 		if workload.NotInterceptableReason == "Progressing" {
 			return "progressing..."
 		}
-		if ai != nil {
+		if workload.AgentVersion != "" {
 			return "ready to intercept (traffic-agent already installed)"
 		}
 		if workload.NotInterceptableReason != "" {
@@ -189,20 +185,7 @@ func (s *listCommand) printList(ctx context.Context, workloads []*connector.Work
 	}
 
 	if formattedOut {
-		o := make([]*workloadJSONOutput, len(workloads))
-		for i, v := range workloads {
-			l := workloadJSONOutput{WorkloadInfo: v}
-
-			if v.Sidecar != nil {
-				var sidecar agentconfig.Sidecar
-				_ = json.Unmarshal(v.Sidecar.Json, &sidecar)
-				l.Sidecar = &sidecar
-			}
-
-			o[i] = &l
-		}
-
-		output.Object(ctx, o, false)
+		output.Object(ctx, workloads, false)
 	} else {
 		includeNs := false
 		ns := s.namespace
@@ -222,7 +205,7 @@ func (s *listCommand) printList(ctx context.Context, workloads []*connector.Work
 		for _, dep := range workloads {
 			n := dep.Name
 			if n == "" {
-				// Local-only, so use name of first intercept
+				// Local-only, so use the name of first intercept
 				n = dep.InterceptInfos[0].Spec.Name
 			}
 			nl := len(n)
@@ -240,13 +223,13 @@ func (s *listCommand) printList(ctx context.Context, workloads []*connector.Work
 				if includeNs {
 					n += "." + workload.Namespace
 				}
-				fmt.Fprintf(stdout, "%-*s: local-only intercept\n", nameLen, n)
+				ioutil.Printf(stdout, "%-*s: local-only intercept\n", nameLen, n)
 			} else {
 				n := workload.Name
 				if includeNs {
 					n += "." + workload.Namespace
 				}
-				fmt.Fprintf(stdout, "%-*s: %s\n", nameLen, n, state(workload))
+				ioutil.Printf(stdout, "%-*s: %s\n", nameLen, n, state(workload))
 			}
 		}
 	}

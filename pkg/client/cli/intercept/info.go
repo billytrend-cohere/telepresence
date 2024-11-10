@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/telepresenceio/telepresence/rpc/v2/manager"
-	"github.com/telepresenceio/telepresence/v2/pkg/client"
+	"github.com/telepresenceio/telepresence/v2/pkg/client/cli/docker"
 	"github.com/telepresenceio/telepresence/v2/pkg/ioutil"
 	"github.com/telepresenceio/telepresence/v2/pkg/iputil"
 )
@@ -42,7 +42,7 @@ type Info struct {
 	PortID        string            `json:"port_id,omitempty"         yaml:"port_id,omitempty"`
 	ContainerPort int32             `json:"container_port,omitempty"  yaml:"container_port,omitempty"`
 	Environment   map[string]string `json:"environment,omitempty"     yaml:"environment,omitempty"`
-	Mount         *Mount            `json:"mount,omitempty"           yaml:"mount,omitempty"`
+	Mount         *docker.Mount     `json:"mount,omitempty"           yaml:"mount,omitempty"`
 	FilterDesc    string            `json:"filter_desc,omitempty"     yaml:"filter_desc,omitempty"`
 	Metadata      map[string]string `json:"metadata,omitempty"        yaml:"metadata,omitempty"`
 	HttpFilter    []string          `json:"http_filter,omitempty"     yaml:"http_filter,omitempty"`
@@ -76,34 +76,18 @@ func PreviewURL(pu string) string {
 	return pu
 }
 
-func NewMount(ctx context.Context, ii *manager.InterceptInfo, mountError string) *Mount {
-	if mountError != "" {
-		return &Mount{Error: mountError}
+func ingestInfo(ii *manager.InterceptInfo) *manager.IngestInfo {
+	return &manager.IngestInfo{
+		MountPoint:       ii.MountPoint,
+		PodIp:            ii.PodIp,
+		SftpPort:         ii.SftpPort,
+		FtpPort:          ii.FtpPort,
+		Environment:      ii.Environment,
+		ClientMountPoint: ii.ClientMountPoint,
 	}
-	if ii.MountPoint != "" {
-		var port int32
-		if client.GetConfig(ctx).Intercept().UseFtp {
-			port = ii.FtpPort
-		} else {
-			port = ii.SftpPort
-		}
-		var mounts []string
-		if tpMounts := ii.Environment["TELEPRESENCE_MOUNTS"]; tpMounts != "" {
-			// This is a Unix path, so we cannot use filepath.SplitList
-			mounts = strings.Split(tpMounts, ":")
-		}
-		return &Mount{
-			LocalDir:  ii.ClientMountPoint,
-			RemoteDir: ii.MountPoint,
-			PodIP:     ii.PodIp,
-			Port:      port,
-			Mounts:    mounts,
-		}
-	}
-	return nil
 }
 
-func NewInfo(ctx context.Context, ii *manager.InterceptInfo, mountError string) *Info {
+func NewInfo(ctx context.Context, ii *manager.InterceptInfo, mountError error) *Info {
 	spec := ii.Spec
 	info := &Info{
 		ID:            ii.Id,
@@ -113,7 +97,7 @@ func NewInfo(ctx context.Context, ii *manager.InterceptInfo, mountError string) 
 		WorkloadKind:  spec.WorkloadKind,
 		TargetHost:    spec.TargetHost,
 		TargetPort:    spec.TargetPort,
-		Mount:         NewMount(ctx, ii, mountError),
+		Mount:         docker.NewMount(ctx, ingestInfo(ii), mountError),
 		ServiceUID:    spec.ServiceUid,
 		PortID:        spec.PortIdentifier,
 		ContainerPort: spec.ContainerPort,

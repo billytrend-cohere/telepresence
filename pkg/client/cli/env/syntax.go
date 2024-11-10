@@ -12,6 +12,7 @@ import (
 	"github.com/go-json-experiment/json"
 	"github.com/go-json-experiment/json/jsontext"
 
+	"github.com/telepresenceio/telepresence/v2/pkg/errcat"
 	"github.com/telepresenceio/telepresence/v2/pkg/shellquote"
 )
 
@@ -71,6 +72,15 @@ func (e Syntax) String() string {
 //goland:noinspection GoMixedReceiverTypes
 func (e Syntax) Type() string {
 	return "string"
+}
+
+//goland:noinspection GoMixedReceiverTypes
+func (e Syntax) writeFile(fileName string, env map[string]string) error {
+	file, err := os.Create(fileName)
+	if err != nil {
+		return errcat.NoDaemonLogs.Newf("failed to create environment file %q: %w", fileName, err)
+	}
+	return e.WriteToFileAndClose(file, env)
 }
 
 //goland:noinspection GoMixedReceiverTypes

@@ -33,6 +33,7 @@ type podAccess struct {
 	wg sync.WaitGroup
 
 	localPorts       []string
+	workload         string
 	container        string
 	podIP            string
 	sftpPort         int32
@@ -60,6 +61,7 @@ type podAccessKey struct {
 // means that the given pod is no longer the chosen one. This typically happens when pods
 // are scaled down and then up again.
 type podAccessSync struct {
+	workload  string
 	wg        sync.WaitGroup
 	cancelPod context.CancelFunc
 }
@@ -148,7 +150,7 @@ func newPodAccessTracker() *podAccessTracker {
 }
 
 // start a port forward for the given ingest/intercept and remembers that it's alive.
-func (lpf *podAccessTracker) start(ctx context.Context, pa *podAccess) {
+func (lpf *podAccessTracker) start(pa *podAccess) {
 	// The mounts performed here are synced on by podIP + port to keep track of active
 	// mounts. This is not enough in situations when a pod is deleted and another pod
 	// takes over. That is two different IPs so an additional synchronization on the actual
@@ -170,17 +172,18 @@ func (lpf *podAccessTracker) start(ctx context.Context, pa *podAccess) {
 	// Make part of current snapshot tracking so that it isn't removed once the
 	// snapshot has been completely handled
 	lpf.snapshot[fk] = struct{}{}
-	lpf.privateStartMounts(ctx, pa)
+	lpf.privateStart(pa)
 	lpf.Unlock()
 }
 
-func (lpf *podAccessTracker) initialStart(ctx context.Context, ic *podAccess) {
+func (lpf *podAccessTracker) initialStart(ic *podAccess) {
 	lpf.Lock()
-	lpf.privateStartMounts(ctx, ic)
+	lpf.privateStart(ic)
 	lpf.Unlock()
 }
 
-func (lpf *podAccessTracker) privateStartMounts(ctx context.Context, pa *podAccess) {
+func (lpf *podAccessTracker) privateStart(pa *podAccess) {
+	ctx := pa.ctx
 	if !pa.shouldForward() && !pa.shouldMount() {
 		dlog.Debugf(ctx, "No mounts or port-forwards needed for pod-ip %s, container %s", pa.podIP, pa.container)
 		return
@@ -197,7 +200,7 @@ func (lpf *podAccessTracker) privateStartMounts(ctx context.Context, pa *podAcce
 	}
 
 	ctx, cancel := context.WithCancel(pa.ctx)
-	lp := &podAccessSync{cancelPod: cancel}
+	lp := &podAccessSync{workload: pa.workload, cancelPod: cancel}
 	if pa.shouldMount() {
 		pa.startMount(ctx, &pa.wg, &lp.wg)
 	}
@@ -232,22 +235,36 @@ func (lpf *podAccessTracker) getOrCreateMountsDone(pa *podAccess) <-chan struct{
 	return md
 }
 
-// cancelUnwanted cancels all port forwards that hasn't been started since initSnapshot.
-func (lpf *podAccessTracker) cancelUnwanted(ctx context.Context) {
+func (lpf *podAccessTracker) privateDelete(fk podAccessKey, lp *podAccessSync) {
+	delete(lpf.alivePods, fk)
+	md, ok := lpf.mountsReady[fk]
+	if ok {
+		delete(lpf.mountsReady, fk)
+		close(md)
+	}
+	lpf.Unlock()
+	lp.cancelPod()
+	lp.wg.Wait()
+	lpf.Lock()
+}
+
+// cancelContainer cancels mounts and port forwards for the given container
+func (lpf *podAccessTracker) cancelContainer(workload, container string) {
+	lpf.Lock()
+	for fk, lp := range lpf.alivePods {
+		if fk.container == container && lp.workload == workload {
+			lpf.privateDelete(fk, lp)
+		}
+	}
+	lpf.Unlock()
+}
+
+// cancelUnwanted cancels all mounts and port forwards that haven't been started since initSnapshot.
+func (lpf *podAccessTracker) cancelUnwanted() {
 	lpf.Lock()
 	for fk, lp := range lpf.alivePods {
 		if _, isWanted := lpf.snapshot[fk]; !isWanted {
-			delete(lpf.alivePods, fk)
-			md, ok := lpf.mountsReady[fk]
-			if ok {
-				delete(lpf.mountsReady, fk)
-				close(md)
-			}
-			lpf.Unlock()
-			dlog.Infof(ctx, "Terminating mounts and port-forwards for %+v", fk)
-			lp.cancelPod()
-			lp.wg.Wait()
-			lpf.Lock()
+			lpf.privateDelete(fk, lp)
 		}
 	}
 	lpf.Unlock()

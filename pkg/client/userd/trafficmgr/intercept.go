@@ -104,12 +104,14 @@ func (ic *intercept) podAccess(rd daemon.DaemonClient) *podAccess {
 	pa := &podAccess{
 		ctx:              ic.ctx,
 		localPorts:       ic.localPorts(),
+		workload:         ic.Spec.Agent,
 		podIP:            ic.PodIp,
 		container:        ic.Spec.ContainerName,
 		sftpPort:         ic.SftpPort,
 		ftpPort:          ic.FtpPort,
 		mountPoint:       ic.MountPoint,
 		clientMountPoint: ic.ClientMountPoint,
+		localMountPort:   ic.localMountPort,
 	}
 	if err := pa.ensureAccess(ic.ctx, rd); err != nil {
 		dlog.Error(ic.ctx, err)
@@ -207,9 +209,9 @@ func (s *session) handleInterceptSnapshot(ctx context.Context, pat *podAccessTra
 			pa.ftpPort = 0
 			pa.sftpPort = 0
 		}
-		pat.start(ctx, pa)
+		pat.start(pa)
 	}
-	pat.cancelUnwanted(ctx)
+	pat.cancelUnwanted()
 }
 
 // getCurrentIntercepts returns a copy of the current intercept snapshot. This snapshot does

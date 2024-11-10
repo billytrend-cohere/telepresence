@@ -27,7 +27,7 @@ func NewSFTPMounter(iceptWG, podWG *sync.WaitGroup) Mounter {
 	return &sftpMounter{iceptWG: iceptWG, podWG: podWG}
 }
 
-func (m *sftpMounter) Start(ctx context.Context, id, clientMountPoint, mountPoint string, podIP net.IP, port uint16) error {
+func (m *sftpMounter) Start(ctx context.Context, workload, container, clientMountPoint, mountPoint string, podIP net.IP, port uint16) error {
 	ctx = dgroup.WithGoroutineName(ctx, iputil.JoinIpPort(podIP, port))
 
 	// The mount is terminated and restarted when the intercept pod changes, so we
@@ -43,8 +43,18 @@ func (m *sftpMounter) Start(ctx context.Context, id, clientMountPoint, mountPoin
 		m.Lock()
 		defer m.Unlock()
 
-		dlog.Infof(ctx, "Mounting SFTP file system for intercept %q (pod %s) at %q", id, podIP, clientMountPoint)
-		defer dlog.Infof(ctx, "Unmounting SFTP file system for intercept %q (pod %s) at %q", id, podIP, clientMountPoint)
+		dlog.Infof(ctx, "Mounting SFTP file system for container %s[%s] (pod %s) at %q", workload, container, podIP, clientMountPoint)
+		defer func() {
+			dlog.Infof(ctx, "Unmounting SFTP file system for container %s[%s] (pod %s) at %q", workload, container, podIP, clientMountPoint)
+			time.Sleep(time.Second)
+
+			// sshfs sometimes leave the mount point in a bad state. This will clean it up
+			ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+			defer cancel()
+			umount := proc.CommandContext(ctx, "fusermount", "-uz", clientMountPoint)
+			umount.DisableLogging = true
+			_ = umount.Run()
+		}()
 
 		// Retry mount in case it gets disconnected
 		bc := backoff.WithContext(backoff.NewConstantBackOff(3*time.Second), ctx)
@@ -94,14 +104,6 @@ func (m *sftpMounter) Start(ctx context.Context, id, clientMountPoint, mountPoin
 			} else {
 				err = proc.Run(ctx, nil, exe, sshfsArgs...)
 			}
-			time.Sleep(time.Second)
-
-			// sshfs sometimes leave the mount point in a bad state. This will clean it up
-			ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
-			defer cancel()
-			umount := proc.CommandContext(ctx, "fusermount", "-uz", clientMountPoint)
-			umount.DisableLogging = true
-			_ = umount.Run()
 			return err
 		}, bc)
 		if err != nil {
