@@ -221,27 +221,6 @@ message PreviewSpec {
   map<string,string> add_request_headers = 4;
 }
 
-message IngestInfo {
-  // The directory where the intercept mounts can be found in the agent.
-  string mount_point = 1;
-
-  // The IP of the ingested pod.
-  string pod_ip = 2;
-
-  // The port where the SFTP server listens.
-  int32 sftp_port = 3;
-
-  // The port where the FTP server listens.
-  int32 ftp_port = 4;
-
-  // The environment of the ingested container
-  map<string, string> environment = 5;
-
-  // The directory where the client mounts the remote mount_point. Only
-  // set when obtaining InterceptInfo from the user daemon.
-  string client_mount_point = 6;
-}
-
 // InterceptInfo contains information about a live intercept in an agent
 message InterceptInfo {
   InterceptSpec spec = 1;

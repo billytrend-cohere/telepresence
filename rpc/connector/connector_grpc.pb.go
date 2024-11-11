@@ -89,7 +89,7 @@ type ConnectorClient interface {
 	// Queries the connector whether it is possible to create the given intercept.
 	CanIntercept(ctx context.Context, in *CreateInterceptRequest, opts ...grpc.CallOption) (*InterceptResult, error)
 	// Starts an Ingest session.
-	Ingest(ctx context.Context, in *IngestRequest, opts ...grpc.CallOption) (*IngestResponse, error)
+	Ingest(ctx context.Context, in *IngestRequest, opts ...grpc.CallOption) (*IngestInfo, error)
 	// Ends an Ingest session.
 	LeaveIngest(ctx context.Context, in *IngestIdentifier, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// Adds an intercept to a workload.  Requires having already called
@@ -245,9 +245,9 @@ func (c *connectorClient) CanIntercept(ctx context.Context, in *CreateInterceptR
 	return out, nil
 }
 
-func (c *connectorClient) Ingest(ctx context.Context, in *IngestRequest, opts ...grpc.CallOption) (*IngestResponse, error) {
+func (c *connectorClient) Ingest(ctx context.Context, in *IngestRequest, opts ...grpc.CallOption) (*IngestInfo, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(IngestResponse)
+	out := new(IngestInfo)
 	err := c.cc.Invoke(ctx, Connector_Ingest_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -502,7 +502,7 @@ type ConnectorServer interface {
 	// Queries the connector whether it is possible to create the given intercept.
 	CanIntercept(context.Context, *CreateInterceptRequest) (*InterceptResult, error)
 	// Starts an Ingest session.
-	Ingest(context.Context, *IngestRequest) (*IngestResponse, error)
+	Ingest(context.Context, *IngestRequest) (*IngestInfo, error)
 	// Ends an Ingest session.
 	LeaveIngest(context.Context, *IngestIdentifier) (*emptypb.Empty, error)
 	// Adds an intercept to a workload.  Requires having already called
@@ -585,7 +585,7 @@ func (UnimplementedConnectorServer) Status(context.Context, *emptypb.Empty) (*Co
 func (UnimplementedConnectorServer) CanIntercept(context.Context, *CreateInterceptRequest) (*InterceptResult, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CanIntercept not implemented")
 }
-func (UnimplementedConnectorServer) Ingest(context.Context, *IngestRequest) (*IngestResponse, error) {
+func (UnimplementedConnectorServer) Ingest(context.Context, *IngestRequest) (*IngestInfo, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Ingest not implemented")
 }
 func (UnimplementedConnectorServer) LeaveIngest(context.Context, *IngestIdentifier) (*emptypb.Empty, error) {

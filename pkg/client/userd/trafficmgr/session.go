@@ -589,6 +589,7 @@ func (s *session) ApplyConfig(ctx context.Context) error {
 func (s *session) getInfosForWorkloads(
 	namespaces []string,
 	iMap map[string][]*manager.InterceptInfo,
+	gMap map[string][]*rpc.IngestInfo,
 	sMap map[string]string,
 	filter rpc.ListRequest_Filter,
 ) []*rpc.WorkloadInfo {
@@ -609,28 +610,8 @@ func (s *session) getInfosForWorkloads(
 		if wlInfo.InterceptInfos, ok = iMap[name]; !ok && filter <= rpc.ListRequest_INTERCEPTS {
 			return
 		}
-		if filter == rpc.ListRequest_INGESTS {
-			igCount := 0
-			s.currentIngests.Range(func(key ingestKey, value *ingest) bool {
-				if key.workload == name {
-					igCount++
-					wlInfo.InterceptInfos = append(wlInfo.InterceptInfos, &manager.InterceptInfo{
-						Id:               key.container,
-						PodName:          value.PodName,
-						ApiPort:          value.ApiPort,
-						PodIp:            value.PodIp,
-						SftpPort:         value.SftpPort,
-						FtpPort:          value.FtpPort,
-						ClientMountPoint: value.localMountPoint,
-						MountPoint:       value.mountPoint,
-						Environment:      value.Containers[value.container].Environment,
-					})
-				}
-				return true
-			})
-			if igCount == 0 {
-				return
-			}
+		if wlInfo.IngestInfos, ok = gMap[name]; !ok && filter <= rpc.ListRequest_INGESTS {
+			return
 		}
 		if wlInfo.AgentVersion, ok = sMap[name]; !ok && filter <= rpc.ListRequest_INSTALLED_AGENTS {
 			return
@@ -766,7 +747,22 @@ nextIs:
 			}
 		}
 	}
-	workloadInfos := s.getInfosForWorkloads(nss, iMap, sMap, filter)
+	gMap := make(map[string][]*rpc.IngestInfo, s.currentIngests.Size())
+	s.currentIngests.Range(func(key ingestKey, value *ingest) bool {
+		gMap[key.workload] = append(gMap[key.workload], &rpc.IngestInfo{
+			Workload:         value.workload,
+			Container:        value.container,
+			PodIp:            value.PodIp,
+			SftpPort:         value.SftpPort,
+			FtpPort:          value.FtpPort,
+			ClientMountPoint: value.localMountPoint,
+			MountPoint:       value.mountPoint,
+			Environment:      value.Containers[value.container].Environment,
+		})
+		return true
+	})
+
+	workloadInfos := s.getInfosForWorkloads(nss, iMap, gMap, sMap, filter)
 	return &rpc.WorkloadInfoSnapshot{Workloads: workloadInfos}, nil
 }
 

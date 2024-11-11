@@ -611,7 +611,7 @@ func (s *service) SetDNSMappings(ctx context.Context, req *daemon.SetDNSMappings
 	return &empty.Empty{}, err
 }
 
-func (s *service) Ingest(ctx context.Context, request *rpc.IngestRequest) (response *rpc.IngestResponse, err error) {
+func (s *service) Ingest(ctx context.Context, request *rpc.IngestRequest) (response *rpc.IngestInfo, err error) {
 	err = s.WithSession(ctx, "Ingest", func(ctx context.Context, session userd.Session) error {
 		response, err = session.Ingest(ctx, request)
 		return err

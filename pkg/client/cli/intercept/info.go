@@ -7,6 +7,7 @@ import (
 	"net"
 	"strings"
 
+	rpc "github.com/telepresenceio/telepresence/rpc/v2/connector"
 	"github.com/telepresenceio/telepresence/rpc/v2/manager"
 	"github.com/telepresenceio/telepresence/v2/pkg/client/cli/docker"
 	"github.com/telepresenceio/telepresence/v2/pkg/ioutil"
@@ -18,15 +19,6 @@ type Ingress struct {
 	Port   int32  `json:"port,omitempty"    yaml:"port,omitempty"`
 	UseTLS bool   `json:"use_tls,omitempty" yaml:"use_tls,omitempty"`
 	L5Host string `json:"l5host,omitempty"  yaml:"l5host,omitempty"`
-}
-
-type Mount struct {
-	LocalDir  string   `json:"local_dir,omitempty"     yaml:"local_dir,omitempty"`
-	RemoteDir string   `json:"remote_dir,omitempty"    yaml:"remote_dir,omitempty"`
-	Error     string   `json:"error,omitempty"         yaml:"error,omitempty"`
-	PodIP     string   `json:"pod_ip,omitempty"        yaml:"pod_ip,omitempty"`
-	Port      int32    `json:"port,omitempty"          yaml:"port,omitempty"`
-	Mounts    []string `json:"mounts,omitempty"        yaml:"mounts,omitempty"`
 }
 
 type Info struct {
@@ -76,8 +68,10 @@ func PreviewURL(pu string) string {
 	return pu
 }
 
-func ingestInfo(ii *manager.InterceptInfo) *manager.IngestInfo {
-	return &manager.IngestInfo{
+func ingestInfo(ii *manager.InterceptInfo) *rpc.IngestInfo {
+	return &rpc.IngestInfo{
+		Workload:         ii.Spec.Agent,
+		Container:        ii.Spec.ContainerName,
 		MountPoint:       ii.MountPoint,
 		PodIp:            ii.PodIp,
 		SftpPort:         ii.SftpPort,

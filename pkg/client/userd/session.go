@@ -95,7 +95,7 @@ type Session interface {
 	Remain(ctx context.Context) error
 	Epilog(ctx context.Context)
 	Done() <-chan struct{}
-	Ingest(context.Context, *rpc.IngestRequest) (*rpc.IngestResponse, error)
+	Ingest(context.Context, *rpc.IngestRequest) (*rpc.IngestInfo, error)
 	LeaveIngest(*rpc.IngestIdentifier) error
 }
 

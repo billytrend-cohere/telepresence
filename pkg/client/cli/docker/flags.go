@@ -2,6 +2,7 @@ package docker
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 
@@ -26,14 +27,14 @@ type Flags struct {
 	imageIndex   int
 }
 
-func (f *Flags) AddFlags(flagSet *pflag.FlagSet) {
-	flagSet.BoolVar(&f.Run, "docker-run", false, ``+
-		`Run a Docker container with intercepted environment, volume mount, by passing arguments after -- to 'docker run', `+
-		`e.g. '--docker-run -- -it --rm ubuntu:20.04 /bin/bash'`)
+func (f *Flags) AddFlags(flagSet *pflag.FlagSet, what string) {
+	flagSet.BoolVar(&f.Run, "docker-run", false, fmt.Sprintf(
+		`Run a Docker container with %s environment, volume mount, by passing arguments after -- to 'docker run', `+
+			`e.g. '--docker-run -- -it --rm ubuntu:20.04 /bin/bash'`, what))
 
-	flagSet.StringVar(&f.build, "docker-build", "", ``+
-		`Build a Docker container from the given docker-context (path or URL), and run it with intercepted environment and volume mounts, `+
-		`by passing arguments after -- to 'docker run', e.g. '--docker-build /path/to/docker/context -- -it IMAGE /bin/bash'`)
+	flagSet.StringVar(&f.build, "docker-build", "", fmt.Sprintf(
+		`Build a Docker container from the given docker-context (path or URL), and run it with %s environment and volume mounts, `+
+			`by passing arguments after -- to 'docker run', e.g. '--docker-build /path/to/docker/context -- -it IMAGE /bin/bash'`, what))
 
 	flagSet.StringVar(&f.debug, "docker-debug", "", ``+
 		`Like --docker-build, but allows a debugger to run inside the container with relaxed security`)
@@ -63,16 +64,18 @@ func (f *Flags) Validate(args []string) error {
 		return errcat.User.New("only one of --docker-run, --docker-build, or --docker-debug can be used")
 	}
 	f.Run = drCount == 1
-	if f.Run {
-		for _, arg := range args {
-			if arg == "-d" || arg == "--detach" {
-				return errcat.User.New("running docker container in background using -d or --detach is not supported")
-			}
+	if !f.Run {
+		if f.Mount != "" {
+			return errcat.User.New("--docker-mount must be used together with --docker-run, --docker-build, or --docker-debug")
 		}
-	} else if f.Mount != "" {
-		return errcat.User.New("--docker-mount must be used together with --docker-run, --docker-build, or --docker-debug")
+		return nil
 	}
 
+	for _, arg := range args {
+		if arg == "-d" || arg == "--detach" {
+			return errcat.User.New("running docker container in background using -d or --detach is not supported")
+		}
+	}
 	f.Image, f.imageIndex = firstArg(args)
 	f.args = args
 

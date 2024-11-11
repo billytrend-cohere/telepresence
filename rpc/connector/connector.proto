@@ -50,7 +50,7 @@ service Connector {
   rpc CanIntercept(CreateInterceptRequest) returns (InterceptResult);
 
   // Starts an Ingest session.
-  rpc Ingest(IngestRequest) returns (IngestResponse);
+  rpc Ingest(IngestRequest) returns (IngestInfo);
 
   // Ends an Ingest session.
   rpc LeaveIngest(IngestIdentifier) returns (google.protobuf.Empty);
@@ -314,22 +314,31 @@ message IngestRequest {
   repeated string local_ports = 4;
 }
 
-message IngestResponse {
-  // The IP of the chosen pod.
-  string pod_ip = 10;
+message IngestInfo {
+  // Name of ingested workload
+  string workload = 1;
 
-  // Port where the SFTP server is listening.
-  int32 sftp_port = 11;
+  // Name of ingested container
+  string container = 2;
 
-  // Port where the FTP server is listening.
-  int32 ftp_port = 18;
+  // The directory where the intercept mounts can be found in the agent.
+  string mount_point = 3;
+
+  // The IP of the ingested pod.
+  string pod_ip = 4;
+
+  // The port where the SFTP server listens.
+  int32 sftp_port = 5;
+
+  // The port where the FTP server listens.
+  int32 ftp_port = 6;
+
+  // The environment of the ingested container
+  map<string, string> environment = 7;
 
   // The directory where the client mounts the remote mount_point. Only
   // set when obtaining InterceptInfo from the user daemon.
-  string client_mount_point = 2;
-
-  // The environment of the target container.
-  map<string,string> environment = 1;
+  string client_mount_point = 8;
 }
 
 message WatchWorkloadsRequest {
@@ -352,12 +361,15 @@ message WorkloadInfo {
   // InterceptInfos reported from the traffic manager in case the workload is currently intercepted
   repeated manager.InterceptInfo intercept_infos = 4;
 
-  // Workload Resource type (e.g. Deployment, ReplicaSet, StatefulSet)
-  string workload_resource_type = 5;
+  // InterceptInfos reported from the traffic manager in case the workload is currently intercepted
+  repeated IngestInfo ingest_infos = 5;
 
-  string uid = 6;
+  // Workload Resource type (e.g. Deployment, ReplicaSet, StatefulSet, Rollout)
+  string workload_resource_type = 6;
 
-  string agent_version = 7;
+  string uid = 7;
+
+  string agent_version = 8;
 }
 
 message WorkloadInfoSnapshot {

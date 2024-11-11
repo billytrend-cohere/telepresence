@@ -22,51 +22,51 @@ type Flags struct {
 	Enabled        bool
 }
 
-func (a *Flags) AddFlags(flagSet *pflag.FlagSet) {
-	flagSet.StringVar(&a.Mount, "mount", "true", ``+
+func (f *Flags) AddFlags(flagSet *pflag.FlagSet) {
+	flagSet.StringVar(&f.Mount, "mount", "true", ``+
 		`The absolute path for the root directory where volumes will be mounted, $TELEPRESENCE_ROOT. Use "true" to `+
 		`have Telepresence pick a random mount point (default). Use "false" to disable filesystem mounting entirely.`)
 
-	flagSet.Uint16Var(&a.LocalMountPort, "local-mount-port", 0,
+	flagSet.Uint16Var(&f.LocalMountPort, "local-mount-port", 0,
 		`Do not mount remote directories. Instead, expose this port on localhost to an external mounter`)
 }
 
-func (a *Flags) Validate(cmd *cobra.Command) error {
-	if a.LocalMountPort > 0 && client.GetConfig(cmd.Context()).Intercept().UseFtp {
+func (f *Flags) Validate(cmd *cobra.Command) error {
+	if f.LocalMountPort > 0 && client.GetConfig(cmd.Context()).Intercept().UseFtp {
 		return errcat.User.New("only SFTP can be used with --local-mount-port. Client is configured to perform remote mounts using FTP")
 	}
 	if !cmd.Flag("mount").Changed {
 		// Default is that mount is enabled and the path is unspecified
-		a.Mount = "" // Get rid of the default string "true"
-		a.Enabled = true
-	} else if len(a.Mount) > 0 {
-		doMount, err := strconv.ParseBool(a.Mount)
+		f.Mount = "" // Get rid of the default string "true"
+		f.Enabled = true
+	} else if len(f.Mount) > 0 {
+		doMount, err := strconv.ParseBool(f.Mount)
 		if err != nil {
 			// Not a boolean flag. Must be a path then
-			a.Enabled = true
+			f.Enabled = true
 		} else {
 			// Boolean flag, path unspecified
-			a.Enabled = doMount
-			a.Mount = ""
+			f.Enabled = doMount
+			f.Mount = ""
 		}
 	}
 	return nil
 }
 
-func (a *Flags) ValidateConnected(ctx context.Context) error {
-	if !a.Enabled {
+func (f *Flags) ValidateConnected(ctx context.Context) error {
+	if !f.Enabled {
 		return nil
 	}
 
 	ud := daemon.GetUserClient(ctx)
 	if ud.Containerized() {
 		// Mounts will be facilitated by the Telemount plug-in connecting to our LocalMountPort
-		if a.LocalMountPort == 0 {
+		if f.LocalMountPort == 0 {
 			lma, err := client.FreePortsTCP(1)
 			if err != nil {
 				return err
 			}
-			a.LocalMountPort = uint16(lma[0].Port)
+			f.LocalMountPort = uint16(lma[0].Port)
 		}
 		return nil
 	}
@@ -74,7 +74,7 @@ func (a *Flags) ValidateConnected(ctx context.Context) error {
 	if err := checkCapability(ctx); err != nil {
 		err = fmt.Errorf("remote volume mounts are disabled: %w", err)
 		// Log a warning and disable, but continue
-		a.Enabled = false
+		f.Enabled = false
 		dlog.Warning(ctx, err)
 		return err
 	}
@@ -83,7 +83,7 @@ func (a *Flags) ValidateConnected(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if a.Mount, err = prepare(cwd, a.Mount); err != nil {
+	if f.Mount, err = prepare(cwd, f.Mount); err != nil {
 		return err
 	}
 	return nil

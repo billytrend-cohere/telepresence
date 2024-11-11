@@ -46,88 +46,86 @@ type Command struct {
 	Silent          bool
 }
 
-func (a *Command) AddFlags(cmd *cobra.Command) {
+func (c *Command) AddFlags(cmd *cobra.Command) {
 	flagSet := cmd.Flags()
-	flagSet.StringVarP(&a.AgentName, "workload", "w", "", "Name of workload (Deployment, ReplicaSet) to intercept, if different from <name>")
-	flagSet.StringVarP(&a.Port, "port", "p", "", ``+
+	flagSet.StringVarP(&c.AgentName, "workload", "w", "", "Name of workload (Deployment, ReplicaSet) to intercept, if different from <name>")
+	flagSet.StringVarP(&c.Port, "port", "p", "", ``+
 		`Local port to forward to. If intercepting a service with multiple ports, `+
 		`use <local port>:<svcPortIdentifier>, where the identifier is the port name or port number. `+
 		`With --docker-run and a daemon that doesn't run in docker', use <local port>:<container port> or `+
 		`<local port>:<container port>:<svcPortIdentifier>.`,
 	)
 
-	flagSet.StringVar(&a.Address, "address", "127.0.0.1", ``+
+	flagSet.StringVar(&c.Address, "address", "127.0.0.1", ``+
 		`Local address to forward to, Only accepts IP address as a value. `+
 		`e.g. '--address 10.0.0.2'`,
 	)
 
-	flagSet.StringVar(&a.ServiceName, "service", "", "Name of service to intercept. If not provided, we will try to auto-detect one")
+	flagSet.StringVar(&c.ServiceName, "service", "", "Name of service to intercept. If not provided, we will try to auto-detect one")
 
-	flagSet.StringVar(&a.ContainerName, "container", "",
+	flagSet.StringVar(&c.ContainerName, "container", "",
 		"Name of container that provides the environment and mounts for the intercept. Defaults to the container matching the targetPort")
 
-	flagSet.StringSliceVar(&a.ToPod, "to-pod", []string{}, ``+
+	flagSet.StringSliceVar(&c.ToPod, "to-pod", []string{}, ``+
 		`An additional port to forward from the intercepted pod, will be made available at localhost:PORT `+
 		`Use this to, for example, access proxy/helper sidecars in the intercepted pod. The default protocol is TCP. `+
 		`Use <port>/UDP for UDP ports`)
 
-	a.EnvFlags.AddFlags(flagSet)
-	a.MountFlags.AddFlags(flagSet)
-	a.DockerFlags.AddFlags(flagSet)
+	c.EnvFlags.AddFlags(flagSet)
+	c.MountFlags.AddFlags(flagSet)
+	c.DockerFlags.AddFlags(flagSet, "intercepted")
 
 	flagSet.StringP("namespace", "n", "", "If present, the namespace scope for this CLI request")
 
-	flagSet.StringVar(&a.Mechanism, "mechanism", "tcp", "Which extension `mechanism` to use")
+	flagSet.StringVar(&c.Mechanism, "mechanism", "tcp", "Which extension `mechanism` to use")
 
-	flagSet.StringVar(&a.WaitMessage, "wait-message", "", "Message to print when intercept handler has started")
+	flagSet.StringVar(&c.WaitMessage, "wait-message", "", "Message to print when intercept handler has started")
 
-	flagSet.BoolVar(&a.DetailedOutput, "detailed-output", false,
+	flagSet.BoolVar(&c.DetailedOutput, "detailed-output", false,
 		`Provide very detailed info about the intercept when used together with --output=json or --output=yaml'`)
 
-	flagSet.BoolVarP(&a.Replace, "replace", "", false,
+	flagSet.BoolVarP(&c.Replace, "replace", "", false,
 		`Indicates if the traffic-agent should replace application containers in workload pods. `+
 			`The default behavior is for the agent sidecar to be installed alongside existing containers.`)
 }
 
-func (a *Command) Validate(cmd *cobra.Command, positional []string) error {
+func (c *Command) Validate(cmd *cobra.Command, positional []string) error {
 	if len(positional) > 1 && cmd.Flags().ArgsLenAtDash() != 1 {
 		return errcat.User.New("commands to be run with intercept must come after options")
 	}
-	a.Name = positional[0]
-	a.Cmdline = positional[1:]
-	a.FormattedOutput = output.WantsFormatted(cmd)
+	c.Name = positional[0]
+	c.Cmdline = positional[1:]
+	c.FormattedOutput = output.WantsFormatted(cmd)
 
 	// Actually intercepting something
-	if a.AgentName == "" {
-		a.AgentName = a.Name
+	if c.AgentName == "" {
+		c.AgentName = c.Name
 	}
-	if a.Port == "" {
-		a.Port = strconv.Itoa(client.GetConfig(cmd.Context()).Intercept().DefaultPort)
+	if c.Port == "" {
+		c.Port = strconv.Itoa(client.GetConfig(cmd.Context()).Intercept().DefaultPort)
 	}
-	if err := a.MountFlags.Validate(cmd); err != nil {
+	if err := c.MountFlags.Validate(cmd); err != nil {
 		return err
 	}
-	if a.DockerFlags.Mount != "" && !a.MountFlags.Enabled {
+	if c.DockerFlags.Mount != "" && !c.MountFlags.Enabled {
 		return errors.New("--docker-mount cannot be used with --mount=false")
 	}
-	return a.DockerFlags.Validate(a.Cmdline)
+	return c.DockerFlags.Validate(c.Cmdline)
 }
 
-func (a *Command) Run(cmd *cobra.Command, positional []string) error {
-	if err := a.Validate(cmd, positional); err != nil {
+func (c *Command) Run(cmd *cobra.Command, positional []string) error {
+	if err := c.Validate(cmd, positional); err != nil {
 		return err
 	}
 	if err := connect.InitCommand(cmd); err != nil {
 		return err
 	}
 	ctx := dos.WithStdio(cmd.Context(), cmd)
-	err := a.MountFlags.ValidateConnected(ctx)
-	dlog.Debugf(cmd.Context(), "Mountflags = %v", &a.MountFlags)
-	_, err = NewState(a, err).Run(ctx)
+	_, err := NewState(c, c.MountFlags.ValidateConnected(ctx)).Run(ctx)
 	return err
 }
 
-func (a *Command) ValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+func ValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	if len(args) > 0 {
 		// Not completing the name of the workload
 		return nil, cobra.ShellCompDirectiveNoFileComp

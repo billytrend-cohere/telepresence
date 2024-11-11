@@ -168,8 +168,8 @@ func (s *listCommand) printList(ctx context.Context, workloads []*connector.Work
 	}
 
 	state := func(workload *connector.WorkloadInfo) string {
-		if iis := workload.InterceptInfos; len(iis) > 0 {
-			return intercept.DescribeIntercepts(ctx, iis, nil, s.debug)
+		if iis, igs := workload.InterceptInfos, workload.IngestInfos; len(iis)+len(igs) > 0 {
+			return intercept.DescribeIntercepts(ctx, iis, igs, nil, s.debug)
 		}
 		if workload.NotInterceptableReason == "Progressing" {
 			return "progressing..."
@@ -191,10 +191,6 @@ func (s *listCommand) printList(ctx context.Context, workloads []*connector.Work
 		ns := s.namespace
 		for _, dep := range workloads {
 			depNs := dep.Namespace
-			if depNs == "" {
-				// Local-only, so use namespace of first intercept
-				depNs = dep.InterceptInfos[0].Spec.Namespace
-			}
 			if ns != "" && depNs != ns {
 				includeNs = true
 				break
@@ -204,10 +200,6 @@ func (s *listCommand) printList(ctx context.Context, workloads []*connector.Work
 		nameLen := 0
 		for _, dep := range workloads {
 			n := dep.Name
-			if n == "" {
-				// Local-only, so use the name of first intercept
-				n = dep.InterceptInfos[0].Spec.Name
-			}
 			nl := len(n)
 			if includeNs {
 				nl += len(dep.Namespace) + 1
@@ -217,20 +209,11 @@ func (s *listCommand) printList(ctx context.Context, workloads []*connector.Work
 			}
 		}
 		for _, workload := range workloads {
-			if workload.Name == "" {
-				// Local-only, so use name of first intercept
-				n := workload.InterceptInfos[0].Spec.Name
-				if includeNs {
-					n += "." + workload.Namespace
-				}
-				ioutil.Printf(stdout, "%-*s: local-only intercept\n", nameLen, n)
-			} else {
-				n := workload.Name
-				if includeNs {
-					n += "." + workload.Namespace
-				}
-				ioutil.Printf(stdout, "%-*s: %s\n", nameLen, n, state(workload))
+			n := workload.Name
+			if includeNs {
+				n += "." + workload.Namespace
 			}
+			ioutil.Printf(stdout, "%-*s: %s\n", nameLen, n, state(workload))
 		}
 	}
 }

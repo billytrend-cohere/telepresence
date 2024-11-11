@@ -53,9 +53,11 @@ func (ig *ingest) podAccess(rd daemon.DaemonClient) *podAccess {
 	return pa
 }
 
-func (ig *ingest) response() *rpc.IngestResponse {
+func (ig *ingest) response() *rpc.IngestInfo {
 	cn := ig.Containers[ig.container]
-	return &rpc.IngestResponse{
+	return &rpc.IngestInfo{
+		Workload:         ig.workload,
+		Container:        ig.container,
 		PodIp:            ig.PodIp,
 		SftpPort:         ig.SftpPort,
 		FtpPort:          ig.FtpPort,
@@ -77,7 +79,7 @@ func (s *session) getSingleContainerName(ai *manager.AgentInfo) (name string, er
 	return name, err
 }
 
-func (s *session) Ingest(ctx context.Context, rq *rpc.IngestRequest) (ir *rpc.IngestResponse, err error) {
+func (s *session) Ingest(ctx context.Context, rq *rpc.IngestRequest) (ir *rpc.IngestInfo, err error) {
 	var ai *manager.AgentInfo
 	id := rq.Identifier
 	if id.ContainerName == "" {

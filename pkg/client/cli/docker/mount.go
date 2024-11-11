@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/telepresenceio/telepresence/rpc/v2/manager"
+	rpc "github.com/telepresenceio/telepresence/rpc/v2/connector"
 	"github.com/telepresenceio/telepresence/v2/pkg/client"
 )
 
@@ -17,7 +17,7 @@ type Mount struct {
 	Mounts    []string `json:"mounts,omitempty"        yaml:"mounts,omitempty"`
 }
 
-func NewMount(ctx context.Context, ii *manager.IngestInfo, mountError error) *Mount {
+func NewMount(ctx context.Context, ii *rpc.IngestInfo, mountError error) *Mount {
 	if mountError != nil {
 		return &Mount{Error: mountError.Error()}
 	}
