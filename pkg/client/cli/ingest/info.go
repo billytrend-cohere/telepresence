@@ -10,28 +10,28 @@ import (
 )
 
 type Info struct {
-	Workload    string            `json:"workload,omitempty"              yaml:"workload,omitempty"`
-	Container   string            `json:"container,omitempty"            yaml:"container,omitempty"`
-	Environment map[string]string `json:"environment,omitempty"     yaml:"environment,omitempty"`
-	Mount       *docker.Mount     `json:"mount,omitempty"           yaml:"mount,omitempty"`
-	PodIP       string            `json:"pod_ip,omitempty"          yaml:"pod_ip,omitempty"`
+	WorkloadKind string            `json:"workload_kind,omitempty"              yaml:"workload_kind,omitempty"`
+	Container    string            `json:"container,omitempty"            yaml:"container,omitempty"`
+	Environment  map[string]string `json:"environment,omitempty"     yaml:"environment,omitempty"`
+	Mount        *docker.Mount     `json:"mount,omitempty"           yaml:"mount,omitempty"`
+	PodIP        string            `json:"pod_ip,omitempty"          yaml:"pod_ip,omitempty"`
 }
 
 func NewInfo(ctx context.Context, ii *rpc.IngestInfo, mountError error) *Info {
 	return &Info{
-		Workload:    ii.Workload,
-		Container:   ii.Container,
-		Mount:       docker.NewMount(ctx, ii, mountError),
-		PodIP:       ii.PodIp,
-		Environment: ii.Environment,
+		WorkloadKind: ii.WorkloadKind,
+		Container:    ii.Container,
+		Mount:        docker.NewMount(ctx, ii, mountError),
+		PodIP:        ii.PodIp,
+		Environment:  ii.Environment,
 	}
 }
 
 func (ii *Info) WriteTo(w io.Writer) (int64, error) {
 	kvf := ioutil.DefaultKeyValueFormatter()
 	kvf.Prefix = "   "
-	kvf.Add("Workload", ii.Workload)
 	kvf.Add("Container", ii.Container)
+	kvf.Add("Workload kind", ii.WorkloadKind)
 	if m := ii.Mount; m != nil {
 		if m.LocalDir != "" {
 			kvf.Add("Volume Mount Point", m.LocalDir)

@@ -21,7 +21,7 @@ func ingestCmd() *cobra.Command {
 		SilenceUsage:      true,
 		SilenceErrors:     true,
 		RunE:              ic.Run,
-		ValidArgsFunction: intercept.ValidArgs,
+		ValidArgsFunction: intercept.ValidArgs, // a list that this command shares with intercept
 	}
 	ic.AddFlags(cmd)
 	return cmd

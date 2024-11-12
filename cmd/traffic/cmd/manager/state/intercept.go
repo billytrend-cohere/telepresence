@@ -116,7 +116,8 @@ func (s *state) ValidateCreateAgent(context.Context, k8sapi.Workload, agentconfi
 }
 
 func (s *state) ensureAgent(parentCtx context.Context, wl k8sapi.Workload, extended bool, spec *managerrpc.InterceptSpec) (
-	ac *agentconfig.Sidecar, ai *managerrpc.AgentInfo, err error) {
+	ac *agentconfig.Sidecar, ai *managerrpc.AgentInfo, err error,
+) {
 	if !managerutil.AgentInjectorEnabled(parentCtx) {
 		sce, err := mutator.GetMap(parentCtx).Get(parentCtx, wl.GetName(), wl.GetNamespace())
 		if err != nil {

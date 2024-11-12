@@ -34,6 +34,7 @@ const (
 	Connector_Status_FullMethodName                  = "/telepresence.connector.Connector/Status"
 	Connector_CanIntercept_FullMethodName            = "/telepresence.connector.Connector/CanIntercept"
 	Connector_Ingest_FullMethodName                  = "/telepresence.connector.Connector/Ingest"
+	Connector_GetIngest_FullMethodName               = "/telepresence.connector.Connector/GetIngest"
 	Connector_LeaveIngest_FullMethodName             = "/telepresence.connector.Connector/LeaveIngest"
 	Connector_CreateIntercept_FullMethodName         = "/telepresence.connector.Connector/CreateIntercept"
 	Connector_RemoveIntercept_FullMethodName         = "/telepresence.connector.Connector/RemoveIntercept"
@@ -90,8 +91,10 @@ type ConnectorClient interface {
 	CanIntercept(ctx context.Context, in *CreateInterceptRequest, opts ...grpc.CallOption) (*InterceptResult, error)
 	// Starts an Ingest session.
 	Ingest(ctx context.Context, in *IngestRequest, opts ...grpc.CallOption) (*IngestInfo, error)
+	// Get info about an ongoing Ingest.
+	GetIngest(ctx context.Context, in *IngestIdentifier, opts ...grpc.CallOption) (*IngestInfo, error)
 	// Ends an Ingest session.
-	LeaveIngest(ctx context.Context, in *IngestIdentifier, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	LeaveIngest(ctx context.Context, in *IngestIdentifier, opts ...grpc.CallOption) (*IngestInfo, error)
 	// Adds an intercept to a workload.  Requires having already called
 	// Connect.
 	CreateIntercept(ctx context.Context, in *CreateInterceptRequest, opts ...grpc.CallOption) (*InterceptResult, error)
@@ -255,9 +258,19 @@ func (c *connectorClient) Ingest(ctx context.Context, in *IngestRequest, opts ..
 	return out, nil
 }
 
-func (c *connectorClient) LeaveIngest(ctx context.Context, in *IngestIdentifier, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (c *connectorClient) GetIngest(ctx context.Context, in *IngestIdentifier, opts ...grpc.CallOption) (*IngestInfo, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(emptypb.Empty)
+	out := new(IngestInfo)
+	err := c.cc.Invoke(ctx, Connector_GetIngest_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *connectorClient) LeaveIngest(ctx context.Context, in *IngestIdentifier, opts ...grpc.CallOption) (*IngestInfo, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(IngestInfo)
 	err := c.cc.Invoke(ctx, Connector_LeaveIngest_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -503,8 +516,10 @@ type ConnectorServer interface {
 	CanIntercept(context.Context, *CreateInterceptRequest) (*InterceptResult, error)
 	// Starts an Ingest session.
 	Ingest(context.Context, *IngestRequest) (*IngestInfo, error)
+	// Get info about an ongoing Ingest.
+	GetIngest(context.Context, *IngestIdentifier) (*IngestInfo, error)
 	// Ends an Ingest session.
-	LeaveIngest(context.Context, *IngestIdentifier) (*emptypb.Empty, error)
+	LeaveIngest(context.Context, *IngestIdentifier) (*IngestInfo, error)
 	// Adds an intercept to a workload.  Requires having already called
 	// Connect.
 	CreateIntercept(context.Context, *CreateInterceptRequest) (*InterceptResult, error)
@@ -588,7 +603,10 @@ func (UnimplementedConnectorServer) CanIntercept(context.Context, *CreateInterce
 func (UnimplementedConnectorServer) Ingest(context.Context, *IngestRequest) (*IngestInfo, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Ingest not implemented")
 }
-func (UnimplementedConnectorServer) LeaveIngest(context.Context, *IngestIdentifier) (*emptypb.Empty, error) {
+func (UnimplementedConnectorServer) GetIngest(context.Context, *IngestIdentifier) (*IngestInfo, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetIngest not implemented")
+}
+func (UnimplementedConnectorServer) LeaveIngest(context.Context, *IngestIdentifier) (*IngestInfo, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method LeaveIngest not implemented")
 }
 func (UnimplementedConnectorServer) CreateIntercept(context.Context, *CreateInterceptRequest) (*InterceptResult, error) {
@@ -852,6 +870,24 @@ func _Connector_Ingest_Handler(srv interface{}, ctx context.Context, dec func(in
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ConnectorServer).Ingest(ctx, req.(*IngestRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Connector_GetIngest_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(IngestIdentifier)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ConnectorServer).GetIngest(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Connector_GetIngest_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ConnectorServer).GetIngest(ctx, req.(*IngestIdentifier))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1251,6 +1287,10 @@ var Connector_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Ingest",
 			Handler:    _Connector_Ingest_Handler,
+		},
+		{
+			MethodName: "GetIngest",
+			Handler:    _Connector_GetIngest_Handler,
 		},
 		{
 			MethodName: "LeaveIngest",

@@ -37,7 +37,7 @@ func IsDaemon() bool {
 	return len(a) > 1 && strings.HasSuffix(a[1], fg) || len(a) > 2 && strings.HasSuffix(a[2], fg) && a[1] == "help"
 }
 
-var ProcessName = func() string {
+var ProcessName = func() string { //nolint:gochecknoglobals // extension point
 	const fg = "-foreground"
 	a := os.Args
 	var pn string

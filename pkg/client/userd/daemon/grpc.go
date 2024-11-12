@@ -619,12 +619,20 @@ func (s *service) Ingest(ctx context.Context, request *rpc.IngestRequest) (respo
 	return response, err
 }
 
-func (s *service) LeaveIngest(ctx context.Context, request *rpc.IngestIdentifier) (_ *emptypb.Empty, err error) {
-	err = s.WithSession(ctx, "LeaveIngest", func(_ context.Context, session userd.Session) error {
-		err = session.LeaveIngest(request)
+func (s *service) GetIngest(ctx context.Context, request *rpc.IngestIdentifier) (response *rpc.IngestInfo, err error) {
+	err = s.WithSession(ctx, "GetIngest", func(_ context.Context, session userd.Session) error {
+		response, err = session.GetIngest(request)
 		return err
 	})
-	return &emptypb.Empty{}, err
+	return response, err
+}
+
+func (s *service) LeaveIngest(ctx context.Context, request *rpc.IngestIdentifier) (response *rpc.IngestInfo, err error) {
+	err = s.WithSession(ctx, "LeaveIngest", func(_ context.Context, session userd.Session) error {
+		response, err = session.LeaveIngest(ctx, request)
+		return err
+	})
+	return response, err
 }
 
 func (s *service) withRootDaemon(ctx context.Context, f func(ctx context.Context, daemonClient daemon.DaemonClient) error) error {

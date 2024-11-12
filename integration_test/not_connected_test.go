@@ -187,13 +187,13 @@ func (s *notConnectedSuite) doConnected(f func(context.Context, context.CancelFu
 	rq.NoError(err)
 	defer conn.Close()
 
-	client := manager.NewManagerClient(conn)
+	mgr := manager.NewManagerClient(conn)
 
 	// Retrieve the session info from the traffic-manager. This is how
 	// a connection to a namespace is made. The traffic-manager now
 	// associates the returned session with that namespace in subsequent
 	// calls.
-	clientSession, err := client.ArriveAsClient(ctx, &manager.ClientInfo{
+	clientSession, err := mgr.ArriveAsClient(ctx, &manager.ClientInfo{
 		Name:      "telepresence@datawire.io",
 		Namespace: s.AppNamespace(),
 		InstallId: "xxx",
@@ -211,14 +211,14 @@ func (s *notConnectedSuite) doConnected(f func(context.Context, context.CancelFu
 		for {
 			select {
 			case <-ticker.C:
-				_, _ = client.Remain(ctx, &manager.RemainRequest{Session: clientSession})
+				_, _ = mgr.Remain(ctx, &manager.RemainRequest{Session: clientSession})
 			case <-ctx.Done():
-				_, _ = client.Depart(ctx, clientSession)
+				_, _ = mgr.Depart(ctx, clientSession)
 				return
 			}
 		}
 	}()
-	f(ctx, cancel, client, clientSession)
+	f(ctx, cancel, mgr, clientSession)
 }
 
 func (s *notConnectedSuite) Test_DirectConnect() {
@@ -291,7 +291,9 @@ func (s *notConnectedSuite) withConnectedService(cr *rpc.ConnectRequest, f func(
 		return errcat.Category(rsp.ErrorCategory).New(rsp.ErrorText)
 	}
 	func() {
-		defer sv.Quit(ctx, nil)
+		defer func() {
+			_, _ = sv.Quit(ctx, nil)
+		}()
 		f(ctx, sv)
 	}()
 	return g.Wait()

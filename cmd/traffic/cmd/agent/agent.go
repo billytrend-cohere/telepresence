@@ -318,9 +318,11 @@ func StartServices(ctx context.Context, g *dgroup.Group, config Config, srv Stat
 			MountPoint:  filepath.Join(agentconfig.ExportsMountPoint, filepath.Base(cn.MountPoint)),
 		}
 	}
+
 	return &rpc.AgentInfo{
-		Name:      config.AgentConfig().AgentName,
-		Namespace: config.AgentConfig().Namespace,
+		Name:      ac.AgentName,
+		Namespace: ac.Namespace,
+		Kind:      ac.WorkloadKind,
 		PodName:   config.PodName(),
 		PodIp:     config.PodIP(),
 		ApiPort:   int32(grpcPort),

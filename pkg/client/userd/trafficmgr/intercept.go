@@ -53,11 +53,11 @@ type intercept struct {
 	// the pid of that new command.
 	pid int
 
-	// containerName is the name or ID of the container that the intercept handler is
+	// handlerContainer is the name or ID of the container that the intercept handler is
 	// running in, when it runs in Docker. As with pid, this entry will only be present when
 	// the telepresence intercept command spawns a new command using --docker-run or
 	// --docker-build
-	containerName string
+	handlerContainer string
 
 	// The mounter of the remote file system.
 	remotefs.Mounter
@@ -214,6 +214,15 @@ func (s *session) handleInterceptSnapshot(ctx context.Context, pat *podAccessTra
 	pat.cancelUnwanted()
 }
 
+func (s *session) getCurrentIngests() []*rpc.IngestInfo {
+	ingests := make([]*rpc.IngestInfo, 0, s.currentIngests.Size())
+	s.currentIngests.Range(func(key ingestKey, ig *ingest) bool {
+		ingests = append(ingests, ig.response())
+		return true
+	})
+	return ingests
+}
+
 // getCurrentIntercepts returns a copy of the current intercept snapshot. This snapshot does
 // not include any local-only intercepts.
 func (s *session) getCurrentIntercepts() []*intercept {
@@ -314,6 +323,14 @@ func (s *interceptInfo) PreparedIntercept() *manager.PreparedIntercept {
 }
 
 func (s *session) ensureNoInterceptConflict(ir *rpc.CreateInterceptRequest) *rpc.InterceptResult {
+	err := s.ensureNoMountConflict(ir.MountPoint, ir.LocalMountPort)
+	if err != nil {
+		return &rpc.InterceptResult{
+			Error:         common.InterceptError_MOUNT_POINT_BUSY,
+			ErrorText:     err.Error(),
+			ErrorCategory: int32(errcat.User),
+		}
+	}
 	s.currentInterceptsLock.Lock()
 	defer s.currentInterceptsLock.Unlock()
 	spec := ir.Spec
@@ -324,13 +341,6 @@ func (s *session) ensureNoInterceptConflict(ir *rpc.CreateInterceptRequest) *rpc
 		case iCept.Spec.TargetPort == spec.TargetPort && iCept.Spec.TargetHost == spec.TargetHost:
 			return &rpc.InterceptResult{
 				Error:         common.InterceptError_LOCAL_TARGET_IN_USE,
-				ErrorText:     spec.Name,
-				ErrorCategory: int32(errcat.User),
-				InterceptInfo: iCept.InterceptInfo,
-			}
-		case ir.MountPoint != "" && iCept.ClientMountPoint == ir.MountPoint:
-			return &rpc.InterceptResult{
-				Error:         common.InterceptError_MOUNT_POINT_BUSY,
 				ErrorText:     spec.Name,
 				ErrorCategory: int32(errcat.User),
 				InterceptInfo: iCept.InterceptInfo,
@@ -527,26 +537,7 @@ func (s *session) RemoveIntercept(c context.Context, name string) error {
 
 func (s *session) removeIntercept(c context.Context, ic *intercept) error {
 	name := ic.Spec.Name
-
-	// No use trying to kill processes when using a container based daemon, unless
-	// that container based daemon runs as a normal user daemon with separate root daemon.
-	// Some users run a standard telepresence client together with intercepts in one
-	// single container.
-	if !(proc.RunningInContainer() && userd.GetService(c).RootSessionInProcess()) {
-		if ic.containerName != "" {
-			if err := docker.StopContainer(docker.EnableClient(c), ic.containerName); err != nil {
-				dlog.Error(c, err)
-			}
-		} else if ic.pid != 0 {
-			p, err := os.FindProcess(ic.pid)
-			if err != nil {
-				dlog.Errorf(c, "unable to find interceptor for intercept %s with pid %d", name, ic.pid)
-			} else {
-				dlog.Debugf(c, "terminating interceptor for intercept %s with pid %d", name, ic.pid)
-				_ = proc.Terminate(p)
-			}
-		}
-	}
+	s.stopHandler(c, name, ic.handlerContainer, ic.pid)
 
 	// Unmount filesystems before telling the manager to remove the intercept
 	ic.cancel()
@@ -562,13 +553,42 @@ func (s *session) removeIntercept(c context.Context, ic *intercept) error {
 	return err
 }
 
+func (s *session) stopHandler(c context.Context, name, handlerContainer string, pid int) {
+	// No use trying to kill processes when using a container-based daemon, unless
+	// that daemon runs as a normal user daemon with a separate root daemon.
+	// Some users run a standard telepresence client together with ingests in one
+	// single container.
+	if !(proc.RunningInContainer() && userd.GetService(c).RootSessionInProcess()) {
+		if handlerContainer != "" {
+			if err := docker.StopContainer(docker.EnableClient(c), handlerContainer); err != nil {
+				dlog.Error(c, err)
+			}
+		} else if pid != 0 {
+			p, err := os.FindProcess(pid)
+			if err != nil {
+				dlog.Errorf(c, "unable to find handler for ingest/intercept %s with pid %d", name, pid)
+			} else {
+				dlog.Debugf(c, "terminating interceptor for ingest/intercept %s with pid %d", name, pid)
+				_ = proc.Terminate(p)
+			}
+		}
+	}
+}
+
 // AddInterceptor associates the given intercept with a running process. This ensures that
 // the running process will be signalled when the intercept is removed.
 func (s *session) AddInterceptor(id string, ih *rpc.Interceptor) error {
 	s.currentInterceptsLock.Lock()
 	if ci, ok := s.currentIntercepts[id]; ok {
 		ci.pid = int(ih.Pid)
-		ci.containerName = ih.ContainerName
+		ci.handlerContainer = ih.ContainerName
+	} else {
+		if parts := strings.Split(id, "/"); len(parts) == 2 {
+			if cg, ok := s.currentIngests.Load(ingestKey{workload: parts[0], container: parts[1]}); ok {
+				cg.pid = int(ih.Pid)
+				cg.handlerContainer = ih.ContainerName
+			}
+		}
 	}
 	s.currentInterceptsLock.Unlock()
 	return nil
@@ -578,7 +598,14 @@ func (s *session) RemoveInterceptor(id string) error {
 	s.currentInterceptsLock.Lock()
 	if ci, ok := s.currentIntercepts[id]; ok {
 		ci.pid = 0
-		ci.containerName = ""
+		ci.handlerContainer = ""
+	} else {
+		if parts := strings.Split(id, "/"); len(parts) == 2 {
+			if cg, ok := s.currentIngests.Load(ingestKey{workload: parts[0], container: parts[1]}); ok {
+				cg.pid = 0
+				cg.handlerContainer = ""
+			}
+		}
 	}
 	s.currentInterceptsLock.Unlock()
 	return nil
@@ -596,11 +623,11 @@ func (s *session) GetInterceptSpec(name string) *manager.InterceptSpec {
 func (s *session) GetInterceptInfo(name string) *manager.InterceptInfo {
 	if ic := s.getInterceptByName(name); ic != nil {
 		ii := ic.InterceptInfo
-		if ic.containerName != "" {
+		if ic.handlerContainer != "" {
 			if ii.Environment == nil {
 				ii.Environment = make(map[string]string, 1)
 			}
-			ii.Environment["TELEPRESENCE_HANDLER_CONTAINER_NAME"] = ic.containerName
+			ii.Environment["TELEPRESENCE_HANDLER_CONTAINER_NAME"] = ic.handlerContainer
 		}
 		return ii
 	}

@@ -76,9 +76,15 @@ func (e Syntax) Type() string {
 
 //goland:noinspection GoMixedReceiverTypes
 func (e Syntax) writeFile(fileName string, env map[string]string) error {
-	file, err := os.Create(fileName)
-	if err != nil {
-		return errcat.NoDaemonLogs.Newf("failed to create environment file %q: %w", fileName, err)
+	var file *os.File
+	if fileName == "-" {
+		file = os.Stdout
+	} else {
+		var err error
+		file, err = os.Create(fileName)
+		if err != nil {
+			return errcat.NoDaemonLogs.Newf("failed to create environment file %q: %w", fileName, err)
+		}
 	}
 	return e.WriteToFileAndClose(file, env)
 }

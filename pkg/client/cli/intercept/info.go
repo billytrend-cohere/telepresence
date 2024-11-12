@@ -71,6 +71,7 @@ func PreviewURL(pu string) string {
 func ingestInfo(ii *manager.InterceptInfo) *rpc.IngestInfo {
 	return &rpc.IngestInfo{
 		Workload:         ii.Spec.Agent,
+		WorkloadKind:     ii.Spec.WorkloadKind,
 		Container:        ii.Spec.ContainerName,
 		MountPoint:       ii.MountPoint,
 		PodIp:            ii.PodIp,

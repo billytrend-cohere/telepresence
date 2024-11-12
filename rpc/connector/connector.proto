@@ -52,8 +52,11 @@ service Connector {
   // Starts an Ingest session.
   rpc Ingest(IngestRequest) returns (IngestInfo);
 
+  // Get info about an ongoing Ingest.
+  rpc GetIngest(IngestIdentifier) returns (IngestInfo);
+
   // Ends an Ingest session.
-  rpc LeaveIngest(IngestIdentifier) returns (google.protobuf.Empty);
+  rpc LeaveIngest(IngestIdentifier) returns (IngestInfo);
 
   // Adds an intercept to a workload.  Requires having already called
   // Connect.
@@ -227,6 +230,8 @@ message ConnectInfo {
 
   manager.InterceptInfoSnapshot intercepts = 8;
 
+  repeated IngestInfo ingests = 9;
+
   manager.SessionInfo session_info = 10;
 
   manager.VersionInfo2 manager_version = 19;
@@ -240,8 +245,6 @@ message ConnectInfo {
 
   repeated string mapped_namespaces = 15;
   repeated daemon.SubnetViaWorkload subnet_via_workloads = 18;
-
-  reserved 9;
 }
 
 message UninstallRequest {
@@ -318,27 +321,29 @@ message IngestInfo {
   // Name of ingested workload
   string workload = 1;
 
+  string workload_kind = 2;
+
   // Name of ingested container
-  string container = 2;
+  string container = 3;
 
   // The directory where the intercept mounts can be found in the agent.
-  string mount_point = 3;
+  string mount_point = 4;
 
   // The IP of the ingested pod.
-  string pod_ip = 4;
+  string pod_ip = 5;
 
   // The port where the SFTP server listens.
-  int32 sftp_port = 5;
+  int32 sftp_port = 6;
 
   // The port where the FTP server listens.
-  int32 ftp_port = 6;
+  int32 ftp_port = 7;
 
   // The environment of the ingested container
-  map<string, string> environment = 7;
+  map<string, string> environment = 8;
 
   // The directory where the client mounts the remote mount_point. Only
   // set when obtaining InterceptInfo from the user daemon.
-  string client_mount_point = 8;
+  string client_mount_point = 9;
 }
 
 message WatchWorkloadsRequest {

@@ -748,17 +748,8 @@ nextIs:
 		}
 	}
 	gMap := make(map[string][]*rpc.IngestInfo, s.currentIngests.Size())
-	s.currentIngests.Range(func(key ingestKey, value *ingest) bool {
-		gMap[key.workload] = append(gMap[key.workload], &rpc.IngestInfo{
-			Workload:         value.workload,
-			Container:        value.container,
-			PodIp:            value.PodIp,
-			SftpPort:         value.SftpPort,
-			FtpPort:          value.FtpPort,
-			ClientMountPoint: value.localMountPoint,
-			MountPoint:       value.mountPoint,
-			Environment:      value.Containers[value.container].Environment,
-		})
+	s.currentIngests.Range(func(key ingestKey, ig *ingest) bool {
+		gMap[key.workload] = append(gMap[key.workload], ig.response())
 		return true
 	})
 
@@ -866,6 +857,7 @@ func (s *session) status(c context.Context, initial bool) *rpc.ConnectInfo {
 		ConnectionName:   s.daemonID.Name,
 		KubeFlags:        s.OriginalFlagMap,
 		Namespace:        s.Namespace,
+		Ingests:          s.getCurrentIngests(),
 		Intercepts:       &manager.InterceptInfoSnapshot{Intercepts: s.getCurrentInterceptInfos()},
 		ManagerVersion: &manager.VersionInfo2{
 			Name:    s.managerName,

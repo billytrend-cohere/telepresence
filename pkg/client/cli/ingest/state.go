@@ -120,7 +120,7 @@ func (s *state) create(ctx context.Context) (acquired bool, err error) {
 		return false, fmt.Errorf("ingest: %w", err)
 	}
 	s.info = ii
-	ioutil.Printf(dos.Stdout(ctx), "Using %s/%s\n", s.WorkloadName, s.ContainerName)
+	ioutil.Printf(dos.Stdout(ctx), "Using %s %s\n", ii.WorkloadKind, ii.Workload)
 
 	env := s.info.Environment
 	if env == nil {
@@ -132,6 +132,10 @@ func (s *state) create(ctx context.Context) (acquired bool, err error) {
 		return true, err
 	}
 	s.ContainerName = env["TELEPRESENCE_CONTAINER"]
+	out := dos.Stdout(ctx)
+	_, _ = NewInfo(ctx, ii, nil).WriteTo(out)
+	_, _ = fmt.Fprintln(out)
+
 	return true, nil
 }
 

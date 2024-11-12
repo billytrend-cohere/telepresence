@@ -22,12 +22,9 @@ import (
 )
 
 type podAccess struct {
-	// ctx is a context cancelled by the cancel attribute. It must be used by
-	// services that should be cancelled when the intercept ends
+	// ctx is a context canceled by the cancel attribute. It must be used by
+	// services that should be canceled when the intercept ends
 	ctx context.Context
-
-	// cancel is called when the intercept is no longer present
-	cancel context.CancelFunc
 
 	// wg is the group to wait for after a call to cancel
 	wg sync.WaitGroup
@@ -209,7 +206,6 @@ func (lpf *podAccessTracker) privateStart(pa *podAccess) {
 	}
 	lpf.alivePods[fk] = lp
 	dlog.Debugf(ctx, "Started mounts and port-forwards for pod-ip %s, container %s", pa.podIP, pa.container)
-	return
 }
 
 // initSnapshot prepares this instance for a new round of start calls followed by a cancelUnwanted.
@@ -248,7 +244,7 @@ func (lpf *podAccessTracker) privateDelete(fk podAccessKey, lp *podAccessSync) {
 	lpf.Lock()
 }
 
-// cancelContainer cancels mounts and port forwards for the given container
+// cancelContainer cancels mounts and port forwards for the given container.
 func (lpf *podAccessTracker) cancelContainer(workload, container string) {
 	lpf.Lock()
 	for fk, lp := range lpf.alivePods {
