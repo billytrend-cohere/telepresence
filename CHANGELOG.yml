@@ -84,6 +84,10 @@ items:
           The Helm chart value <code>workloads</code> now supports the kinds <code>deployments.enabled</code>, <code>statefulSets.enabled</code>, and <code>replicaSets.enabled</code>.
           By default, all three are enabled, but can be disabled by setting the corresponding value to <code>false</code>.
           When disabled, the traffic-manager will ignore workloads of a corresponding kind, and Telepresence will not be able to intercept them.
+      - type: bugfix
+        title: Allow root daemon to run inside docker container when not in docker mode
+        body: >-
+          Previously the root daemon would not be run when running docker inside a container such as github codespaces since it would assume that the root daemon was already running.
   - version: 2.20.2
     date: 2024-10-21
     notes:
