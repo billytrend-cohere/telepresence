@@ -333,7 +333,7 @@ func newUserDaemon(ctx context.Context, conn *grpc.ClientConn, daemonID *daemon.
 
 func EnsureUserDaemon(ctx context.Context, required bool) (rc context.Context, err error) {
 	defer func() {
-		if err == nil && required && !daemon.GetUserClient(rc).Containerized() {
+		if err == nil && required &&  !(os.Getuid() == 0 && daemon.GetUserClient(rc).Containerized()) {
 			// The RootDaemon must be started if the UserDaemon was started
 			err = ensureRootDaemonRunning(ctx)
 		}
